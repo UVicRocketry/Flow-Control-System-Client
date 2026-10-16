@@ -1,5 +1,21 @@
+
 [project]
 name = "Flow Control System Client"
+version = "0.0.1"
 
 [tool.pyside6-project]
-files = ["contents/code/main.py", "contents/ui/Main.qml", "contents/qmldir"]
+files = ["contents/code/main.py", "contents/code/backend.py", "contents/qml/main.qml", "contents/qmldir"]
+
+[tool.pylint.main]
+extension-pkg-allow-list = ["PySide6"]
+ignored-modules = ["__feature__"]
+
+[tool.pylint."messages control"]
+disable = [
+    "raw-checker-failed",
+    "bad-inline-option",
+    "locally-disabled",
+    "file-ignored",
+    "suppressed-message",
+    "useless-suppression",
+]
