@@ -1,0 +1,5 @@
+[project]
+name = "Flow Control System Client"
+
+[tool.pyside6-project]
+files = ["contents/code/main.py", "contents/ui/Main.qml", "contents/qmldir"]
