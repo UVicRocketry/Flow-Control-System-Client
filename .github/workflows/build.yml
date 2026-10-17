@@ -39,6 +39,7 @@ jobs:
             libfontconfig1 libdbus-1-3 \
             qml6-module-org-kde-kirigami \
             qml6-module-org-kde-qqc2desktopstyle \
+            qml6-module-org-kde-quickcharts \
             qml6-module-qtquick-controls \
             qml6-module-qtquick-layouts \
             qml6-module-qtquick-templates \
@@ -61,7 +62,6 @@ jobs:
           mkdir -p build/AppDir/usr/share/icons/hicolor/scalable/apps
 
           # Use `cp -a` (archive mode) instead of `cp -r` to preserve symlinks!
-          # `cp -r` dereferences .so symlinks and triples the size of every shared library.
           cp -a dist/FlowControl/. build/AppDir/usr/bin/
           cp packaging/AppRun build/AppDir/AppRun
           chmod +x build/AppDir/AppRun
@@ -104,7 +104,7 @@ jobs:
     defaults:
       run:
         shell: msys2 {0}
-    steps:
+      steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
@@ -121,6 +121,7 @@ jobs:
             mingw-w64-ucrt-x86_64-pyinstaller
             mingw-w64-ucrt-x86_64-kirigami
             mingw-w64-ucrt-x86_64-qqc2-desktop-style
+            mingw-w64-ucrt-x86_64-kquickcharts
             mingw-w64-ucrt-x86_64-breeze
             mingw-w64-ucrt-x86_64-breeze-icons
             mingw-w64-ucrt-x86_64-kcoreaddons
@@ -128,7 +129,7 @@ jobs:
             mingw-w64-ucrt-x86_64-kiconthemes
 
       - name: Install remaining pure-Python dependencies
-       run: |
+        run: |
           grep -ivE "pyside6|shiboken6" requirements.txt > requirements-msys2.txt
           pip install --no-build-isolation -r requirements-msys2.txt
 
@@ -140,7 +141,7 @@ jobs:
       - name: Package Windows Portable ZIP
         shell: pwsh
         run: |
-          # Use 7z with Maximum (-mx=9) compression instead of Compress-Archive for smaller ZIPs
+          # Use 7z with Maximum (-mx=9) compression
           7z a -tzip -mx=9 "dist/FlowControl-Windows-Portable.zip" "./dist/FlowControl/*"
 
       - name: Upload Windows Portable ZIP
@@ -177,7 +178,7 @@ jobs:
 
       - name: Package macOS DMG and Portable ZIP
         run: |
-          # Use ULMO (LZMA compression, macOS 10.15+) instead of UDZO (zlib) -> ~35% smaller DMG!
+          # Use ULMO (LZMA compression, macOS 10.15+) -> ~35% smaller DMG!
           hdiutil create -volname "Flow Control" -srcfolder "dist/Flow Control.app" -ov -format ULMO "dist/FlowControl-macOS.dmg"
 
           # Create Portable ZIP preserving Mach-O permissions and extended attributes
