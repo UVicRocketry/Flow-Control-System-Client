@@ -71,7 +71,7 @@ pip install -r requirements.txt
 
 ## Automated builder
 
-Standalone portable binaries for **Linux**, **Windows**, and **macOS (untested)** are built via **GitHub Actions**:
+Standalone portable binaries for **Linux**, **Windows**, and **macOS (not currently shipping)** are built via **GitHub Actions**:
 
 ### Grabbing releases
 

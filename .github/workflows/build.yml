@@ -30,11 +30,10 @@ jobs:
       - name: Install system libraries and Kirigami modules
         run: |
           sudo apt-get install -y --no-install-recommends \
-            libgl1-mesa-dev libxkbcommon-x11-0 libegl1-mesa \
+            libgl1-mesa-dev libxkbcommon-x11-0 \
             libfontconfig1 libdbus-1-3 \
             kf6-kirigami \
             kf6-qqc2-desktop-style \
-            kf6-breeze-icons \
             kf6-kiconthemes \
             kf6-kcoreaddons \
             kf6-ki18n \
@@ -134,44 +133,45 @@ jobs:
           if-no-files-found: error
   # ============================================================================
   # 3. MACOS BUILD (.app Bundle, .dmg & .zip)
+  # not shipping cuz no need atm
   # ============================================================================
-  build-macos:
-    name: macOS Portable (.dmg & .zip)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-      - name: Install Python dependencies
-        run: |
-          python3 -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-build.txt
-      - name: Compile Application with PyInstaller
-        run: |
-          pyinstaller --clean --noconfirm packaging/FlowControl.spec
-      - name: Package macOS DMG and Portable ZIP
-        run: |
-          # Use ULMO (LZMA compression, macOS 10.15+) -> ~35% smaller DMG!
-          hdiutil create -volname "Flow Control" -srcfolder "dist/Flow Control.app" -ov -format ULMO "dist/FlowControl-macOS.dmg"
-
-          # Create Portable ZIP preserving Mach-O permissions and extended attributes
-          ditto -c -k --sequesterRsrc --keepParent "dist/Flow Control.app" "dist/FlowControl-macOS.zip"
-      - name: Upload macOS DMG Artifact
-        uses: actions/upload-artifact@v7
-        with:
-          path: dist/FlowControl-macOS.dmg
-          archive: false
-          if-no-files-found: error
-      - name: Upload macOS Portable ZIP Artifact
-        uses: actions/upload-artifact@v7
-        with:
-          path: dist/FlowControl-macOS.zip
-          archive: false
-          if-no-files-found: error
+  # build-macos:
+  #   name: macOS Portable (.dmg & .zip)
+  #   runs-on: macos-latest
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v6
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v6
+  #       with:
+  #         python-version: '3.11'
+  #         cache: 'pip'
+  #     - name: Install Python dependencies
+  #       run: |
+  #         python3 -m pip install --upgrade pip
+  #         pip install -r requirements.txt -r requirements-build.txt
+  #     - name: Compile Application with PyInstaller
+  #       run: |
+  #         pyinstaller --clean --noconfirm packaging/FlowControl.spec
+  #     - name: Package macOS DMG and Portable ZIP
+  #       run: |
+  #         # Use ULMO (LZMA compression, macOS 10.15+) -> ~35% smaller DMG!
+  #         hdiutil create -volname "Flow Control" -srcfolder "dist/Flow Control.app" -ov -format ULMO "dist/FlowControl-macOS.dmg"
+  #
+  #         # Create Portable ZIP preserving Mach-O permissions and extended attributes
+  #         ditto -c -k --sequesterRsrc --keepParent "dist/Flow Control.app" "dist/FlowControl-macOS.zip"
+  #     - name: Upload macOS DMG Artifact
+  #       uses: actions/upload-artifact@v7
+  #       with:
+  #         path: dist/FlowControl-macOS.dmg
+  #         archive: false
+  #         if-no-files-found: error
+  #     - name: Upload macOS Portable ZIP Artifact
+  #       uses: actions/upload-artifact@v7
+  #       with:
+  #         path: dist/FlowControl-macOS.zip
+  #         archive: false
+  #         if-no-files-found: error
   # ============================================================================
   # 4. GITHUB RELEASE (Triggered on git tag push: v*)
   # ============================================================================
@@ -191,7 +191,6 @@ jobs:
           files: |
             release_artifacts/**/*.AppImage
             release_artifacts/**/*.zip
-            release_artifacts/**/*.dmg
           draft: false
           prerelease: false
         env:
