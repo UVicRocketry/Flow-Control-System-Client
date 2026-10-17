@@ -1,10 +1,9 @@
-
 [project]
 name = "Flow Control System Client"
 version = "0.0.1"
 
 [tool.pyside6-project]
-files = ["contents/code/main.py", "contents/code/backend.py", "contents/qml/main.qml", "contents/qmldir"]
+files = ["contents/code/backend.py", "contents/code/main.py", "contents/qml/Websocket.qml", "contents/qml/main.qml", "contents/qml/pages/Actuators.qml", "contents/qml/pages/Dashboard.qml", "contents/qml/pages/Graphs.qml", "contents/qml/pages/Sidebar.qml", "contents/qmldir"]
 
 [tool.pylint.main]
 extension-pkg-allow-list = ["PySide6"]
