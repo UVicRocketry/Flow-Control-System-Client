@@ -12,13 +12,12 @@ Run directly from source:
 ```sh
 python contents/code/main.py
 ```
-If you're on Windows, you'll want to use WSL to develop this project.
 
 ### Runtime dependencies
 
 When running or developing from source, the following dependencies are required:
 
-#### 1. System libraries & QML modules (Linux / WSL)
+#### 1. System libraries & QML modules
 
 The UI utilizes KDE's **Kirigami** framework (`org.kde.kirigami`) and Qt Quick Controls:
 
@@ -52,6 +51,18 @@ The UI utilizes KDE's **Kirigami** framework (`org.kde.kirigami`) and Qt Quick C
     qt6-qtwayland
   ```
   
+- **Windows**
+
+   To run or develop natively on Windows, install Kirigami and the KDE desktop style via **KDE Craft** as outlined in their [developer docs](https://develop.kde.org/docs/getting-started/kirigami/platforms-windows/):
+
+   ```powershell
+   # 1. Install KDE Craft
+   iex ((new-object net.webclient).DownloadString('https://invent.kde.org/packaging/craft/-/raw/master/setup/install_craft.ps1'))
+
+   # 2. In your Craft environment, install Kirigami and desktop styling
+   craft kirigami kcoreaddons ki18n breeze breeze-icons kiconthemes qqc2-desktop-style
+   ```
+   
 #### 2. Python packages
 Install via `pip`:
 ```sh

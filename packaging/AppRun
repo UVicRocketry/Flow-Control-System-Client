@@ -6,9 +6,15 @@ HERE="$(dirname "$(readlink -f "$0")")"
 
 export APPDIR="$HERE"
 export PATH="$HERE/usr/bin:$PATH"
-export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/bin:$LD_LIBRARY_PATH"
-export QT_PLUGIN_PATH="$HERE/usr/plugins:$QT_PLUGIN_PATH"
-export QML2_IMPORT_PATH="$HERE/usr/qml:$HERE/usr/bin/contents/qml:$QML2_IMPORT_PATH"
+
+# Include bundled internal directory, usr/lib, and host libraries for fallback
+export LD_LIBRARY_PATH="$HERE/usr/bin/_internal:$HERE/usr/lib:$HERE/usr/bin:$LD_LIBRARY_PATH:/usr/lib:/usr/lib64:/usr/lib/x86_64-linux-gnu"
+
+# Include PySide6 plugins and host Qt6 plugins
+export QT_PLUGIN_PATH="$HERE/usr/bin/_internal/PySide6/Qt/plugins:$HERE/usr/plugins:$QT_PLUGIN_PATH:/usr/lib/qt6/plugins:/usr/lib/x86_64-linux-gnu/qt6/plugins"
+
+# Include internal PyInstaller directory, bundled QML, and host QML paths
+export QML2_IMPORT_PATH="$HERE/usr/bin/_internal:$HERE/usr/bin/_internal/PySide6/Qt/qml:$HERE/usr/qml:$QML2_IMPORT_PATH:/usr/lib/qt6/qml:/usr/lib/x86_64-linux-gnu/qt6/qml:/usr/lib64/qt6/qml"
 
 # Run main binary
 exec "$HERE/usr/bin/FlowControl" "$@"

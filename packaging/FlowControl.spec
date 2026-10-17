@@ -32,34 +32,98 @@ metadata_file = REPO_ROOT / "metadata.json"
 if metadata_file.exists():
     datas.append((str(metadata_file), "."))
 
-# Attempt to locate and bundle Kirigami QML modules so client runs portably anywhere
-kirigami_candidates = [
-    Path("/usr/lib/qt6/qml/org/kde/kirigami"),
-    Path("/usr/lib64/qt6/qml/org/kde/kirigami"),
+binaries = []
+
+# Attempt to locate and bundle Kirigami & KDE QML modules so client runs portably anywhere
+qml_search_roots = [
+    Path("/usr/lib/x86_64-linux-gnu/qt6/qml"),
+    Path("/usr/lib/qt6/qml"),
+    Path("/usr/lib64/qt6/qml"),
 ]
+
+# Windows KDE Craft search roots
+if sys.platform == "win32":
+    craft_root = Path(os.environ.get("CRAFT_ROOT", r"C:\CraftRoot"))
+    for qml_sub in ["qml", r"bin\qml", r"lib\qml", r"share\qt6\qml", r"bin\data\qml", r"share\qml"]:
+        cand = craft_root / qml_sub
+        if cand.exists() and cand not in qml_search_roots:
+            qml_search_roots.append(cand)
 
 try:
     from PySide6.QtCore import QLibraryInfo
-    qml_sys_path = Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.QmlImportsPath))
-    kirigami_candidates.insert(0, qml_sys_path / "org" / "kde" / "kirigami")
+    pyside_qml = Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.QmlImportsPath))
+    if pyside_qml.exists():
+        qml_search_roots.insert(0, pyside_qml)
 except Exception:
     pass
 
-for k_path in kirigami_candidates:
-    if k_path.exists():
-        datas.append((str(k_path), "org/kde/kirigami"))
-        break
+collected_kde_mods = set()
+for root in qml_search_roots:
+    org_kde = root / "org" / "kde"
+    if org_kde.exists():
+        for mod_path in org_kde.iterdir():
+            if mod_path.is_dir() and mod_path.name not in collected_kde_mods:
+                collected_kde_mods.add(mod_path.name)
+                datas.append((str(mod_path), f"org/kde/{mod_path.name}"))
+                # Also collect any shared libraries inside this QML module into binaries (.so on Linux, .dll on Windows)
+                for lib_file in list(mod_path.rglob("*.so*")) + list(mod_path.rglob("*.dll")):
+                    try:
+                        rel_dir = lib_file.parent.relative_to(root)
+                        binaries.append((str(lib_file.resolve()), str(rel_dir)))
+                        if lib_file.is_symlink():
+                            binaries.append((str(lib_file), str(rel_dir)))
+                    except Exception:
+                        pass
+
+# Linux: collect Kirigami, KDE and Breeze shared libraries
+lib_dirs = [
+    Path("/usr/lib/x86_64-linux-gnu"),
+    Path("/usr/lib"),
+    Path("/usr/lib64"),
+]
+added_binaries = set()
+for l_dir in lib_dirs:
+    if l_dir.exists():
+        for pattern in ["*Kirigami*.so*", "*KF6*.so*", "*Breeze*.so*", "*qqc2*.so*"]:
+            for match in l_dir.glob(pattern):
+                try:
+                    resolved = match.resolve()
+                    if resolved.is_file() and str(resolved) not in added_binaries:
+                        added_binaries.add(str(resolved))
+                        binaries.append((str(resolved), "."))
+                        if match.name != resolved.name:
+                            binaries.append((str(match), "."))
+                except Exception:
+                    pass
+
+# Windows: collect dependent DLLs and Breeze icons from Craft
+if sys.platform == "win32":
+    craft_root = Path(os.environ.get("CRAFT_ROOT", r"C:\CraftRoot"))
+    craft_bin = craft_root / "bin"
+    if craft_bin.exists():
+        for dll in craft_bin.glob("*.dll"):
+            dll_lower = dll.name.lower()
+            # Avoid conflicting with PySide6's Qt6 / python runtime dlls
+            if not dll_lower.startswith("python") and not dll_lower.startswith("qt6"):
+                binaries.append((str(dll), "."))
+    for icon_sub in [r"bin\data\icons", r"share\icons"]:
+        cand_icons = craft_root / icon_sub
+        if cand_icons.exists():
+            datas.append((str(cand_icons), "icons"))
 
 # Hidden imports
 hidden_imports = [
     "__feature__",
+    "shiboken6",
     "backend",
     "PySide6",
     "PySide6.QtCore",
     "PySide6.QtGui",
+    "PySide6.QtWidgets",
     "PySide6.QtQml",
     "PySide6.QtQuick",
     "PySide6.QtQuickControls2",
+    "PySide6.QtQuickLayouts",
     "PySide6.QtNetwork",
     "PySide6.QtSvg",
     "PySide6.QtSvgWidgets",
@@ -68,6 +132,8 @@ hidden_imports = [
 ]
 
 hidden_imports += collect_submodules("PySide6.QtQuickControls2")
+hidden_imports += collect_submodules("PySide6.QtQuick")
+hidden_imports += collect_submodules("PySide6.QtQml")
 
 excludes = [
     "tkinter",
@@ -85,7 +151,7 @@ a = Analysis(
         str(REPO_ROOT / "contents"),
         str(REPO_ROOT),
     ],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hidden_imports,
     hookspath=[],
