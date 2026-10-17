@@ -68,8 +68,13 @@ qml_search_roots = [
     Path("/usr/lib64/qt6/qml"),
 ]
 
-# Locate KDE Craft root on Windows and macOS
-default_craft = r"C:\CraftRoot" if sys.platform == "win32" else str(Path.home() / "CraftRoot")
+# Locate KDE Craft or MSYS2 UCRT64 root on Windows and macOS
+if sys.platform == "win32":
+    # In MSYS2 UCRT64, sys.prefix is already `<msys64>/ucrt64`
+    default_craft = sys.prefix if (Path(sys.prefix) / "share" / "qt6" / "qml").exists() else r"C:\CraftRoot"
+else:
+    default_craft = str(Path.home() / "CraftRoot")
+
 craft_root = Path(os.environ.get("CRAFT_ROOT", default_craft))
 
 if sys.platform in ("win32", "darwin") and craft_root.exists():
@@ -153,10 +158,11 @@ if sys.platform in ("win32", "darwin") and craft_root.exists():
                     for lib in search_dir.glob(f"{pat}{ext}*"):
                         add_binary_once(lib, ".")
 
-    # 2. Collect KIconEnginePlugin & KF6 style plugins so QIcon::fromTheme("...") works
+    # 2. Collect KIconEnginePlugin so QIcon::fromTheme("...") works on both MSYS2 and Craft
     for plugin in craft_root.rglob("*KIconEnginePlugin*"):
         if plugin.suffix in (".dll", ".dylib"):
             add_binary_once(plugin, "PySide6/Qt/plugins/iconengines")
+            add_binary_once(plugin, "qt6_plugins/iconengines")
 
     for style_plugin in craft_root.rglob("*breeze*"):
         if "styles" in style_plugin.parts and style_plugin.suffix in (".dll", ".dylib"):
@@ -239,7 +245,7 @@ if sys.platform.startswith("linux"):
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-# 1. Standalone single-file executable (Only built on Windows where it's uploaded)
+# Standalone single-file executable (Only built on Windows where it's uploaded)
 if sys.platform == "win32":
     exe_single = EXE(
         pyz,
@@ -251,7 +257,7 @@ if sys.platform == "win32":
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
-        upx=True,
+        upx=False,
         upx_exclude=[],
         runtime_tmpdir=None,
         console=False,
@@ -263,7 +269,7 @@ if sys.platform == "win32":
         icon=str(ICON_PATH) if ICON_PATH.exists() else None,
     )
 
-# 2. Onedir distribution (Used for Linux AppDir, Windows ZIP, and macOS .app bundle)
+# Onedir distribution (Used for Linux AppDir, Windows ZIP, and macOS .app bundle)
 exe_dir = EXE(
     pyz,
     a.scripts,
@@ -273,7 +279,7 @@ exe_dir = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -288,12 +294,12 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name="FlowControl",
 )
 
-# 3. macOS Application Bundle (.app)
+# macOS Application Bundle (.app)
 if sys.platform == "darwin":
     app = BUNDLE(
         coll,

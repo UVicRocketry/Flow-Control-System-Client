@@ -1,20 +1,30 @@
-#!/bin/sh
+#!/usr/bin/env bash
 set -e
 
-# AppRun launcher for Flow Control Client AppImage
-HERE="$(dirname "$(readlink -f "$0")")"
+# Resolve the root of the mounted AppImage
+HERE="$(dirname "$(readlink -f "${0}")")"
+BIN_DIR="${HERE}/usr/bin"
 
-export APPDIR="$HERE"
-export PATH="$HERE/usr/bin:$PATH"
+# PyInstaller 6+ places all bundled libraries and data inside _internal/
+if [ -d "${BIN_DIR}/_internal" ]; then
+    INTERNAL_DIR="${BIN_DIR}/_internal"
+else
+    INTERNAL_DIR="${BIN_DIR}"
+fi
 
-# Include bundled internal directory, usr/lib, and host libraries for fallback
-export LD_LIBRARY_PATH="$HERE/usr/bin/_internal:$HERE/usr/lib:$HERE/usr/bin:$LD_LIBRARY_PATH:/usr/lib:/usr/lib64:/usr/lib/x86_64-linux-gnu"
+# 1. Library Path: Append (do not prepend over host Mesa/GPU drivers) _internal
+export LD_LIBRARY_PATH="${INTERNAL_DIR}:${INTERNAL_DIR}/PySide6/Qt/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-# Include PySide6 plugins and host Qt6 plugins
-export QT_PLUGIN_PATH="$HERE/usr/bin/_internal/PySide6/Qt/plugins:$HERE/usr/plugins:$QT_PLUGIN_PATH:/usr/lib/qt6/plugins:/usr/lib/x86_64-linux-gnu/qt6/plugins"
+# 2. Isolate Qt Plugins & QML Imports strictly to the AppImage bundle
+#    (Overwrites any host QT_PLUGIN_PATH / QML2_IMPORT_PATH to prevent Qt6 version ABI crashes!)
+export QT_PLUGIN_PATH="${INTERNAL_DIR}/PySide6/Qt/plugins"
+export QML2_IMPORT_PATH="${INTERNAL_DIR}:${INTERNAL_DIR}/contents:${INTERNAL_DIR}/contents/qml:${INTERNAL_DIR}/PySide6/Qt/qml"
 
-# Include internal PyInstaller directory, bundled QML, and host QML paths
-export QML2_IMPORT_PATH="$HERE/usr/bin/_internal:$HERE/usr/bin/_internal/PySide6/Qt/qml:$HERE/usr/qml:$QML2_IMPORT_PATH:/usr/lib/qt6/qml:/usr/lib/x86_64-linux-gnu/qt6/qml:/usr/lib64/qt6/qml"
+# 3. Preserve access to host XDG icons & themes (/usr/share/icons) while adding AppDir share
+export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 
-# Run main binary
-exec "$HERE/usr/bin/FlowControl" "$@"
+# 4. Default to Kirigami desktop style; allow Wayland with automatic X11 (xcb) fallback
+export QT_QUICK_CONTROLS_STYLE="${QT_QUICK_CONTROLS_STYLE:-org.kde.desktop}"
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland;xcb}"
+
+exec "${BIN_DIR}/FlowControl" "$@"
