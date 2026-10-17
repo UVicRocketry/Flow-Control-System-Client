@@ -180,12 +180,90 @@ class Backend(QtCore.QObject):
     Exposes configuration properties and settings accessors.
     """
 
-    configChanged = QtCore.Signal()
-    serverUrlChanged = QtCore.Signal(str)
+    config_changed = QtCore.Signal()
+    server_url_changed = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._config_data = {}
+        self.load_config()
 
+        env_type = (
+            "Development (/contents/config/)"
+            if is_dev_environment()
+            else f"Standalone ({sys.platform})"
+        )
+        print(f"[CONFIG] Environment: {env_type} | Config directory: {CONFIG_DIR}")
+
+    @QtCore.Property(str, notify=config_changed)
+    def config_dir(self) -> str:
+        return str(CONFIG_DIR)
+
+    @QtCore.Property(str, notify=config_changed)
+    def config_file(self) -> str:
+        return str(CONFIG_FILE)
+
+    @QtCore.Property(bool, constant=True)
+    def is_dev_mode(self) -> bool:
+        return is_dev_environment()
+
+    @QtCore.Property(str, notify=server_url_changed)
+    def server_url(self) -> str:
+        server_sec = self._config_data.get("server", {})
+        return server_sec.get("default_url", "ws://127.0.0.1:8080/ws")
+
+    @QtCore.Slot(result="QVariantMap")
+    def load_config(self) -> dict:
+        """Loads configuration from CONFIG_FILE, falling back to template config/config.json."""
+        target_path = CONFIG_FILE if CONFIG_FILE.exists() else get_default_config_file()
+        if target_path.exists():
+            try:
+                with open(target_path, "r", encoding="utf-8") as f:
+                    self._config_data = json.load(f)
+            except Exception as err:
+                print(f"[CONFIG] Error reading {target_path}: {err}.", file=sys.stderr)
+                self._config_data = {}
+        else:
+            print(
+                f"[CONFIG] Error: No configuration file found at {target_path}.",
+                file=sys.stderr,
+            )
+            self._config_data = {}
+
+        ensure_config_file_exists()
+        self.config_changed.emit()
+        self.server_url_changed.emit(self.server_url)
+        return self._config_data
+
+    @QtCore.Slot("QVariantMap", result=bool)
+    def save_config(self, data: dict) -> bool:
+        """Saves dictionary data to CONFIG_FILE."""
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+            self._config_data = data
+            self.config_changed.emit()
+            self.server_url_changed.emit(self.server_url)
+            return True
+        except Exception as err:
+            print(
+                f"[CONFIG] Error saving config to {CONFIG_FILE}: {err}", file=sys.stderr
+            )
+            return False
+
+    # duplicate slot for default overload
+    @QtCore.Slot(str, result="QVariant")
+    @QtCore.Slot(str, "QVariant", result="QVariant")
+    def get_setting(self, key: str, default=None):
+        return self._config_data.get(key, default)
+
+    @QtCore.Slot(str, "QVariant")
+    def set_setting(self, key: str, value):
+        self._config_data[key] = value
+        self.save_config(self._config_data)
+
+    @QtCore.Slot()
     def connect(self):
         """Connection entrypoint."""
         pass

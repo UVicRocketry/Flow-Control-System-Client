@@ -3,6 +3,7 @@
 Flow Control Client - Main Entry Point
 Starts PySide6 Application and loads QML interface.
 """
+
 import os
 import signal
 import sys
@@ -25,7 +26,11 @@ def get_resource_dir() -> Path:
     """Returns directory containing qml and assets, handling PyInstaller sys._MEIPASS."""
     if IS_FROZEN:
         bundle_path = Path(sys._MEIPASS)
-        return bundle_path / "contents" if (bundle_path / "contents").exists() else bundle_path
+        return (
+            bundle_path / "contents"
+            if (bundle_path / "contents").exists()
+            else bundle_path
+        )
     return CURRENT_DIR.parent  # contents/
 
 
@@ -44,6 +49,7 @@ if __name__ == "__main__":
 
     # QML error logging
     qml_errors = []
+
     def on_qml_warning(warnings):
         for w in warnings:
             msg = w.to_string() if hasattr(w, "to_string") else str(w)
@@ -65,7 +71,11 @@ if __name__ == "__main__":
     else:
         # development fallbacks
         if sys.platform.startswith("linux"):
-            for sys_qml in ["/usr/lib/qt6/qml", "/usr/lib/x86_64-linux-gnu/qt6/qml", "/usr/lib64/qt6/qml"]:
+            for sys_qml in [
+                "/usr/lib/qt6/qml",
+                "/usr/lib/x86_64-linux-gnu/qt6/qml",
+                "/usr/lib64/qt6/qml",
+            ]:
                 if Path(sys_qml).exists():
                     engine.add_import_path(sys_qml)
         elif sys.platform == "win32":
@@ -87,13 +97,22 @@ if __name__ == "__main__":
     engine.load(qml_file)
 
     if not engine.root_objects():
-        detailed_err = "\n".join(qml_errors) if qml_errors else "Unknown QML loading error."
+        detailed_err = (
+            "\n".join(qml_errors) if qml_errors else "Unknown QML loading error."
+        )
         full_msg = f"[ERROR] Failed to load QML root objects.\n\nQML Diagnostics:\n{detailed_err}"
         print(full_msg, file=sys.stderr)
 
         try:
-            log_path = Path(sys.executable).parent / "FlowControl_startup.log" if IS_FROZEN else Path("FlowControl_startup.log")
-            log_path.write_text(f"{full_msg}\n\nImport Paths:\n" + "\n".join(engine.import_path_list()), encoding="utf-8")
+            log_path = (
+                Path(sys.executable).parent / "FlowControl_startup.log"
+                if IS_FROZEN
+                else Path("FlowControl_startup.log")
+            )
+            log_path.write_text(
+                f"{full_msg}\n\nImport Paths:\n" + "\n".join(engine.import_path_list()),
+                encoding="utf-8",
+            )
         except Exception:
             pass
 
