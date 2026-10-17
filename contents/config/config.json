@@ -1,0 +1,44 @@
+{
+    "server": {
+        "default_url": "ws://127.0.0.1:8080/ws",
+        "auto_reconnect": true,
+        "reconnect_interval_ms": 2000
+    },
+    "valves": [
+        {
+            "id": "MEV",
+            "label": "Main Engine Valve (MEV)",
+            "key": "1"
+        },
+        {
+            "id": "N2OV",
+            "label": "Nitrous Valve (N2OV)",
+            "key": "2"
+        },
+        {
+            "id": "RTV",
+            "label": "Run Tank Valve (RTV)",
+            "key": "3"
+        },
+        {
+            "id": "N2F",
+            "label": "Nitrogen Fill (N2F)",
+            "key": "4"
+        },
+        {
+            "id": "ERV",
+            "label": "Electronic Relief Valve (ERV)",
+            "key": "5"
+        },
+        {
+            "id": "N2OF",
+            "label": "Nitrous Fill (N2OF)",
+            "key": "6"
+        },
+        {
+            "id": "NCV",
+            "label": "Nitrogen Cart Valve (NCV)",
+            "key": "7"
+        }
+    ],
+}

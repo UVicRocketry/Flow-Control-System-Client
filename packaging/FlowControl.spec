@@ -27,6 +27,11 @@ datas = [
     (str(REPO_ROOT / "contents" / "qmldir"), "contents"),
 ]
 
+# Bundle default configuration templates for standalone packages
+config_dir = REPO_ROOT / "contents" / "config"
+if config_dir.exists():
+    datas.append((str(config_dir), "contents/config"))
+
 # If metadata.json exists, bundle it
 metadata_file = REPO_ROOT / "metadata.json"
 if metadata_file.exists():
