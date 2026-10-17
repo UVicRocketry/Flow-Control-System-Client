@@ -94,62 +94,46 @@ jobs:
           path: dist/FlowControl-Linux-x86_64.AppImage
           if-no-files-found: error
 
-  # ============================================================================
-  # 2. WINDOWS BUILD (Portable .exe & .zip)
+# ============================================================================
+  # 2. WINDOWS BUILD (MSYS2 Pre-Built Binaries)
   # ============================================================================
   build-windows:
     name: Windows Portable (.exe & .zip)
     runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up MSYS2 and install pre-built KF6 & Qt6 packages
+        uses: msys2/setup-msys2@v2
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          msystem: UCRT64
+          update: true
+          cache: true
+          install: >-
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-pip
+            mingw-w64-ucrt-x86_64-pyside6
+            mingw-w64-ucrt-x86_64-pyinstaller
+            mingw-w64-ucrt-x86_64-kirigami
+            mingw-w64-ucrt-x86_64-qqc2-desktop-style
+            mingw-w64-ucrt-x86_64-breeze
+            mingw-w64-ucrt-x86_64-breeze-icons
+            mingw-w64-ucrt-x86_64-kcoreaddons
+            mingw-w64-ucrt-x86_64-ki18n
+            mingw-w64-ucrt-x86_64-kiconthemes
 
-      - name: Install Python dependencies
+      - name: Install remaining pure-Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-build.txt
-
-      - name: Cache KDE Craft Root
-        uses: actions/cache@v4
-        id: craft-cache
-        with:
-          path: C:\CraftRoot
-          key: craft-windows-2022-kirigami-v1
-
-      - name: Bootstrap KDE Craft and install Kirigami
-        if: steps.craft-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force
-          python.exe -m pip install --upgrade certifi
-          
-          # Clean PATH to prevent sh.exe / mingw from conflicting with Visual Studio 2022
-          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notlike '*mingw*' -and $_ -notlike '*Git\bin*' }) -join ';'
-          
-          git clone --depth 1 https://invent.kde.org/packaging/craft.git "$env:TEMP\craft-src"
-          $pyPath = (Get-Command python.exe).Source
-          Write-Host "Running Craft bootstrap with python: $pyPath"
-          & "$pyPath" "$env:TEMP\craft-src\setup\CraftBootstrap.py" --prefix "C:\CraftRoot" --localDev "$env:TEMP\craft-src" --use-defaults
-          if (Test-Path "C:\CraftRoot\craft\craftenv.ps1") {
-            . "C:\CraftRoot\craft\craftenv.ps1"
-            craft kirigami kcoreaddons ki18n breeze breeze-icons kiconthemes qqc2-desktop-style
-          } else {
-            throw "Craft environment script was not found at C:\CraftRoot\craft\craftenv.ps1"
-          }
+          # Filter out PySide6/PyQt6 from requirements if already installed via pacman
+          pip install --no-build-isolation -r requirements.txt
 
       - name: Compile Application with PyInstaller
-        shell: pwsh
         run: |
-          if (Test-Path "C:\CraftRoot\craft\craftenv.ps1") {
-            . "C:\CraftRoot\craft\craftenv.ps1"
-          }
-          $env:CRAFT_ROOT = "C:\CraftRoot"
+          export CRAFT_ROOT="/ucrt64"
           pyinstaller --clean --noconfirm packaging/FlowControl.spec
 
       - name: Package Windows Portable Executable and ZIP
