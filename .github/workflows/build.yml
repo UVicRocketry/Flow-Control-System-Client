@@ -39,7 +39,6 @@ jobs:
             libfontconfig1 libdbus-1-3 \
             qml6-module-org-kde-kirigami \
             qml6-module-org-kde-qqc2desktopstyle \
-            qml6-module-org-kde-quickcharts \
             qml6-module-qtquick-controls \
             qml6-module-qtquick-layouts \
             qml6-module-qtquick-templates \
@@ -121,7 +120,6 @@ jobs:
             mingw-w64-ucrt-x86_64-pyinstaller
             mingw-w64-ucrt-x86_64-kirigami
             mingw-w64-ucrt-x86_64-qqc2-desktop-style
-            mingw-w64-ucrt-x86_64-kquickcharts
             mingw-w64-ucrt-x86_64-breeze
             mingw-w64-ucrt-x86_64-breeze-icons
             mingw-w64-ucrt-x86_64-kcoreaddons
