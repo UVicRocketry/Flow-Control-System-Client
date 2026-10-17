@@ -35,12 +35,23 @@ def get_resource_dir() -> Path:
 
 
 if __name__ == "__main__":
-    if not os.environ.get("QT_QUICK_CONTROLS_STYLE"):
-        # Only default to org.kde.desktop on Linux, or let Windows/macOS fallback gracefully
-        if sys.platform.startswith("linux"):
-            os.environ["QT_QUICK_CONTROLS_STYLE"] = "org.kde.desktop"
-
     app = QApplication(sys.argv)
+
+    if sys.platform.startswith("linux"):
+        host_icon_dirs = [
+            str(Path.home() / ".local/share/icons"),
+            "/usr/share/icons",
+            "/usr/local/share/icons",
+        ]
+        QIcon.set_theme_search_paths(host_icon_dirs + QIcon.theme_search_paths())
+
+    if IS_FROZEN:
+        # Append bundled icons at the END of the search paths as a fallback
+        bundled_icons = Path(sys._MEIPASS) / "icons"
+        if bundled_icons.exists():
+            QIcon.set_theme_search_paths(QIcon.theme_search_paths() + [str(bundled_icons)])
+
+    QIcon.set_fallback_theme_name("breeze")
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     engine = QQmlApplicationEngine()

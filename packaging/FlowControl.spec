@@ -2,54 +2,78 @@
 """
 PyInstaller Specification for Flow Control System Client
 Multi-platform build spec for GitHub Actions CI/CD workflows.
-Supports Linux (AppImage / Onedir), Windows (Portable .exe / Onedir), and macOS (.app bundle).
+Supports Linux (AppImage / Onedir), Windows (Portable .exe & Onedir), and macOS (.app bundle).
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 SPEC_ROOT = Path(SPECPATH).resolve()
 REPO_ROOT = SPEC_ROOT.parent
 
-# Determine appropriate platform icon
+# ============================================================================
+# 1. PLATFORM ICON RESOLUTION & AUTO-GENERATION
+# ============================================================================
+PNG_ICON = SPEC_ROOT / "icon.png"
 if sys.platform == "win32":
     ICON_PATH = SPEC_ROOT / "icon.ico"
+    if not ICON_PATH.exists() and PNG_ICON.exists():
+        try:
+            from PIL import Image
+            img = Image.open(PNG_ICON)
+            img.save(ICON_PATH, sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
+        except Exception as e:
+            print(f"[Spec Warning] Could not auto-generate icon.ico via Pillow: {e}")
 elif sys.platform == "darwin":
     ICON_PATH = SPEC_ROOT / "icon.icns"
+    if not ICON_PATH.exists() and PNG_ICON.exists():
+        try:
+            from PIL import Image
+            img = Image.open(PNG_ICON)
+            img.save(ICON_PATH)
+        except Exception as e:
+            print(f"[Spec Warning] Could not auto-generate icon.icns via Pillow: {e}")
 else:
-    ICON_PATH = SPEC_ROOT / "icon.png"
+    ICON_PATH = PNG_ICON
 
-# Collect data files
+# ============================================================================
+# 2. DATA FILES & ASSETS
+# ============================================================================
 datas = [
     (str(REPO_ROOT / "contents" / "qml"), "contents/qml"),
     (str(REPO_ROOT / "contents" / "qmldir"), "contents"),
 ]
 
-# Bundle default configuration templates for standalone packages
+if PNG_ICON.exists():
+    datas.append((str(PNG_ICON), "contents/qml/img"))
+
 config_dir = REPO_ROOT / "contents" / "config"
 if config_dir.exists():
     datas.append((str(config_dir), "contents/config"))
 
-# If metadata.json exists, bundle it
 metadata_file = REPO_ROOT / "metadata.json"
 if metadata_file.exists():
     datas.append((str(metadata_file), "."))
 
 binaries = []
 
-# Attempt to locate and bundle Kirigami & KDE QML modules so client runs portably anywhere
+# ============================================================================
+# 3. QML MODULES (Kirigami, QQC2 Desktop Style, KDE Frameworks)
+# ============================================================================
 qml_search_roots = [
     Path("/usr/lib/x86_64-linux-gnu/qt6/qml"),
     Path("/usr/lib/qt6/qml"),
     Path("/usr/lib64/qt6/qml"),
 ]
 
-# Windows KDE Craft search roots
-if sys.platform == "win32":
-    craft_root = Path(os.environ.get("CRAFT_ROOT", r"C:\CraftRoot"))
-    for qml_sub in ["qml", r"bin\qml", r"lib\qml", r"share\qt6\qml", r"bin\data\qml", r"share\qml"]:
+# Locate KDE Craft root on Windows and macOS
+default_craft = r"C:\CraftRoot" if sys.platform == "win32" else str(Path.home() / "CraftRoot")
+craft_root = Path(os.environ.get("CRAFT_ROOT", default_craft))
+
+if sys.platform in ("win32", "darwin") and craft_root.exists():
+    for qml_sub in ["qml", "bin/qml", "lib/qml", "share/qt6/qml", "bin/data/qml", "share/qml"]:
         cand = craft_root / qml_sub
         if cand.exists() and cand not in qml_search_roots:
             qml_search_roots.append(cand)
@@ -70,53 +94,88 @@ for root in qml_search_roots:
             if mod_path.is_dir() and mod_path.name not in collected_kde_mods:
                 collected_kde_mods.add(mod_path.name)
                 datas.append((str(mod_path), f"org/kde/{mod_path.name}"))
-                # Also collect any shared libraries inside this QML module into binaries (.so on Linux, .dll on Windows)
-                for lib_file in list(mod_path.rglob("*.so*")) + list(mod_path.rglob("*.dll")):
-                    try:
-                        rel_dir = lib_file.parent.relative_to(root)
-                        binaries.append((str(lib_file.resolve()), str(rel_dir)))
-                        if lib_file.is_symlink():
-                            binaries.append((str(lib_file), str(rel_dir)))
-                    except Exception:
-                        pass
+                # Collect C++ QML plugin binaries (.so, .dll, .dylib)
+                for ext in ("*.so*", "*.dll", "*.dylib"):
+                    for lib_file in mod_path.rglob(ext):
+                        try:
+                            rel_dir = lib_file.parent.relative_to(root)
+                            binaries.append((str(lib_file.resolve()), str(rel_dir)))
+                            if lib_file.is_symlink():
+                                binaries.append((str(lib_file), str(rel_dir)))
+                        except Exception:
+                            pass
 
-# Linux: collect Kirigami, KDE and Breeze shared libraries
-lib_dirs = [
-    Path("/usr/lib/x86_64-linux-gnu"),
-    Path("/usr/lib"),
-    Path("/usr/lib64"),
-]
+# ============================================================================
+# 4. SHARED LIBRARIES & BREEZE ICON ENGINE (Linux, Windows, macOS)
+# ============================================================================
 added_binaries = set()
-for l_dir in lib_dirs:
-    if l_dir.exists():
-        for pattern in ["*Kirigami*.so*", "*KF6*.so*", "*Breeze*.so*", "*qqc2*.so*"]:
-            for match in l_dir.glob(pattern):
-                try:
-                    resolved = match.resolve()
-                    if resolved.is_file() and str(resolved) not in added_binaries:
-                        added_binaries.add(str(resolved))
-                        binaries.append((str(resolved), "."))
-                        if match.name != resolved.name:
-                            binaries.append((str(match), "."))
-                except Exception:
-                    pass
 
-# Windows: collect dependent DLLs and Breeze icons from Craft
-if sys.platform == "win32":
-    craft_root = Path(os.environ.get("CRAFT_ROOT", r"C:\CraftRoot"))
-    craft_bin = craft_root / "bin"
-    if craft_bin.exists():
-        for dll in craft_bin.glob("*.dll"):
-            dll_lower = dll.name.lower()
-            # Avoid conflicting with PySide6's Qt6 / python runtime dlls
-            if not dll_lower.startswith("python") and not dll_lower.startswith("qt6"):
-                binaries.append((str(dll), "."))
-    for icon_sub in [r"bin\data\icons", r"share\icons"]:
+
+def add_binary_once(src_path: Path, dest_dir: str = "."):
+    try:
+        resolved = src_path.resolve()
+        if resolved.is_file() and str(resolved) not in added_binaries:
+            added_binaries.add(str(resolved))
+            binaries.append((str(resolved), dest_dir))
+            if src_path.name != resolved.name:
+                binaries.append((str(src_path), dest_dir))
+    except Exception:
+        pass
+
+
+# Linux shared libraries & icon plugins
+if sys.platform.startswith("linux"):
+    for l_dir in [Path("/usr/lib/x86_64-linux-gnu"), Path("/usr/lib"), Path("/usr/lib64")]:
+        if l_dir.exists():
+            for pattern in ["*Kirigami*.so*", "*KF6*.so*", "*Breeze*.so*", "*qqc2*.so*"]:
+                for match in l_dir.glob(pattern):
+                    add_binary_once(match, ".")
+            for plugin in l_dir.rglob("*KIconEnginePlugin*.so*"):
+                add_binary_once(plugin, "PySide6/Qt/plugins/iconengines")
+
+# Windows & macOS Craft shared libraries, KIconEnginePlugin, and Breeze Icons
+if sys.platform in ("win32", "darwin") and craft_root.exists():
+    # 1. Collect KF6, Kirigami, Breeze, and gettext/iconv runtime libraries
+    lib_patterns = [
+        "*KF6*",
+        "*Kirigami*",
+        "*Breeze*",
+        "*qqc2*",
+        "*intl*",
+        "*iconv*",
+        "*pcre2*",
+    ]
+    for sub in ["bin", "lib"]:
+        search_dir = craft_root / sub
+        if search_dir.exists():
+            for pat in lib_patterns:
+                for ext in (".dll", ".dylib"):
+                    for lib in search_dir.glob(f"{pat}{ext}*"):
+                        add_binary_once(lib, ".")
+
+    # 2. Collect KIconEnginePlugin & KF6 style plugins so QIcon::fromTheme("...") works
+    for plugin in craft_root.rglob("*KIconEnginePlugin*"):
+        if plugin.suffix in (".dll", ".dylib"):
+            add_binary_once(plugin, "PySide6/Qt/plugins/iconengines")
+
+    for style_plugin in craft_root.rglob("*breeze*"):
+        if "styles" in style_plugin.parts and style_plugin.suffix in (".dll", ".dylib"):
+            add_binary_once(style_plugin, "PySide6/Qt/plugins/styles")
+
+    # 3. Collect Breeze icon theme directories AND/OR binary .rcc bundle
+    for rcc in craft_root.rglob("breeze-icons.rcc"):
+        datas.append((str(rcc), "iconthemes"))
+        break
+
+    for icon_sub in ["bin/data/icons", "share/icons"]:
         cand_icons = craft_root / icon_sub
         if cand_icons.exists():
             datas.append((str(cand_icons), "icons"))
+            break
 
-# Hidden imports
+# ============================================================================
+# 5. ANALYSIS & PACKAGING
+# ============================================================================
 hidden_imports = [
     "__feature__",
     "shiboken6",
@@ -167,8 +226,8 @@ a = Analysis(
     optimize=1,
 )
 
-# Strip host-provided libraries that cause fontconfig XML schema/attribute warnings on modern Linux distributions
-if sys.platform != "win32" and sys.platform != "darwin":
+# Strip host-provided libraries that cause fontconfig XML warnings on Linux
+if sys.platform.startswith("linux"):
     EXCLUDED_HOST_LIBS = [
         "libfontconfig.so",
         "libfreetype.so",
@@ -180,30 +239,31 @@ if sys.platform != "win32" and sys.platform != "darwin":
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-# Standalone single-file executable (Windows Portable .exe and Linux standalone)
-exe_single = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
-    name="FlowControl-Portable",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon=str(ICON_PATH) if ICON_PATH.exists() else None,
-)
+# 1. Standalone single-file executable (Only built on Windows where it's uploaded)
+if sys.platform == "win32":
+    exe_single = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.datas,
+        [],
+        name="FlowControl-Portable",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        runtime_tmpdir=None,
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+        icon=str(ICON_PATH) if ICON_PATH.exists() else None,
+    )
 
-# Onedir distribution (Used for Linux AppDir and macOS .app bundle)
+# 2. Onedir distribution (Used for Linux AppDir, Windows ZIP, and macOS .app bundle)
 exe_dir = EXE(
     pyz,
     a.scripts,
@@ -233,7 +293,7 @@ coll = COLLECT(
     name="FlowControl",
 )
 
-# macOS Application Bundle (.app)
+# 3. macOS Application Bundle (.app)
 if sys.platform == "darwin":
     app = BUNDLE(
         coll,

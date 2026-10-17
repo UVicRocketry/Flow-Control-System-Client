@@ -6,7 +6,7 @@ import org.kde.kirigami as Kirigami
 ColumnLayout {
     id: root
 
-    property string activePageName: "actuators"
+    property string activePageName: "dashboard"
 
     signal navigateRequested(string pageName)
 
@@ -23,7 +23,7 @@ ColumnLayout {
         clip: true
         interactive: false // If you don't need independent scrolling inside the sidebar
         // 1. Group by the model's 'category' field
-        section.property: "dashboard"
+        section.property: "category"
         section.criteria: ViewSection.FullString
         spacing: Kirigami.Units.smallSpacing
 
@@ -32,21 +32,21 @@ ColumnLayout {
             ListElement {
                 category: "Views"
                 name: "Dashboard"
-                icon: "dashboard-show"
+                icon: "computer"
                 page: "dashboard"
             }
 
             ListElement {
                 category: "Views"
                 name: "Valve actuators"
-                icon: "system-run"
+                icon: "network-wired"
                 page: "actuators"
             }
 
             ListElement {
                 category: "Views"
                 name: "Graphs"
-                icon: "office-chart-line"
+                icon: "utilities-system-monitor"
                 page: "graphs"
             }
 
