@@ -110,6 +110,12 @@ for root in qml_search_roots:
                         except Exception:
                             pass
 
+# sanity check
+if "kirigami" not in collected_kde_mods:
+    raise RuntimeError(
+        f"CRITICAL: 'org/kde/kirigami' was not found in any QML search path: {qml_search_roots}"
+    )
+
 # ============================================================================
 # 4. SHARED LIBRARIES & BREEZE ICON ENGINE (Linux, Windows, macOS)
 # ============================================================================
@@ -137,6 +143,9 @@ if sys.platform.startswith("linux"):
                     add_binary_once(match, ".")
             for plugin in l_dir.rglob("*KIconEnginePlugin*.so*"):
                 add_binary_once(plugin, "PySide6/Qt/plugins/iconengines")
+            # Bundle Kirigami platform theme plugins (org.kde.desktop.so)
+            for kf6_plat in l_dir.rglob("kf6/kirigami/platform/*.so*"):
+                add_binary_once(kf6_plat, "PySide6/Qt/plugins/kf6/kirigami/platform")
 
 # Windows & macOS Craft shared libraries, KIconEnginePlugin, and Breeze Icons
 if sys.platform in ("win32", "darwin") and craft_root.exists():
