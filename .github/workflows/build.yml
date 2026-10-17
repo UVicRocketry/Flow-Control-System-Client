@@ -65,6 +65,10 @@ jobs:
           cp packaging/AppRun build/AppDir/AppRun
           chmod +x build/AppDir/AppRun
 
+          # Exclude libraries on AppImage excludelist to eliminate host fontconfig XML attribute errors
+          find build/AppDir -name "libfontconfig.so*" -delete || true
+          find build/AppDir -name "libfreetype.so*" -delete || true
+
           # Copy desktop entry and icons
           cp packaging/flow-control.desktop build/AppDir/flow-control.desktop
           cp packaging/flow-control.desktop build/AppDir/usr/share/applications/flow-control.desktop
@@ -124,11 +128,10 @@ jobs:
         run: |
           Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force
           python.exe -m pip install --upgrade certifi
-          $installer = "$env:TEMP\install_craft.ps1"
-          Invoke-WebRequest -Uri "https://invent.kde.org/packaging/craft/-/raw/master/setup/install_craft.ps1" -OutFile $installer
+          git clone --depth 1 https://invent.kde.org/packaging/craft.git "$env:TEMP\craft-src"
           $pyPath = (Get-Command python.exe).Source
-          Write-Host "Running Craft installer with python: $pyPath"
-          & powershell.exe -ExecutionPolicy Bypass -File $installer -root "C:\CraftRoot" -python "$pyPath" -use-defaults
+          Write-Host "Running Craft bootstrap with python: $pyPath"
+          & "$pyPath" "$env:TEMP\craft-src\setup\CraftBootstrap.py" --prefix "C:\CraftRoot" --localDev "$env:TEMP\craft-src" --use-defaults
           if (Test-Path "C:\CraftRoot\craft\craftenv.ps1") {
             . "C:\CraftRoot\craft\craftenv.ps1"
             craft kirigami kcoreaddons ki18n breeze breeze-icons kiconthemes qqc2-desktop-style

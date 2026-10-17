@@ -93,3 +93,4 @@ CMakeLists.txt.user*
 *.zip
 .tools/
 .build_venv/
+logs*/

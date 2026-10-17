@@ -162,6 +162,17 @@ a = Analysis(
     optimize=1,
 )
 
+# Strip host-provided libraries that cause fontconfig XML schema/attribute warnings on modern Linux distributions
+if sys.platform != "win32" and sys.platform != "darwin":
+    EXCLUDED_HOST_LIBS = [
+        "libfontconfig.so",
+        "libfreetype.so",
+    ]
+    a.binaries = [
+        item for item in a.binaries
+        if not any(ex in item[0] for ex in EXCLUDED_HOST_LIBS)
+    ]
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
 # Standalone single-file executable (Windows Portable .exe and Linux standalone)
