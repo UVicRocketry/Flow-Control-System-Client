@@ -4,7 +4,7 @@ PySide6 / Kirigami Client for the Flow Control System
 
 ## Running the client
 
-Grab the newest release from Github's Releases tab!
+Grab the newest release from Github's [releases](https://github.com/UVicRocketry/Flow-Control-System-Client/releases) tab!
 
 ## Development
 
