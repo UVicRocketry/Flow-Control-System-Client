@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Flow Control
+GenericName=Flow Control Ground Station
+Comment=Flow Control Ground Station Client for Rocketry
+Exec=FlowControl
+Icon=flow-control
+Categories=Utility;Engineering;Development;
+Terminal=false
+StartupNotify=true

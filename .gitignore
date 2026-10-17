@@ -81,5 +81,15 @@ CMakeLists.txt.user*
 .pch/
 .rcc/
 .uic/
-/build*/
+/build/
+/build-*/
 /.qtcreator/
+
+# Distribution and build outputs
+/dist/
+/build/
+*.AppImage
+*.dmg
+*.zip
+.tools/
+.build_venv/

@@ -8,17 +8,27 @@ import sys
 import os
 import signal
 from pathlib import Path
-from backend import Backend
-
-from PySide6.QtGui import QGuiApplication, QIcon
-from PySide6.QtQml import QQmlApplicationEngine
-
-from __feature__ import snake_case, true_property
 
 # Ensure clean imports from local code directory
 CURRENT_DIR = Path(__file__).resolve().parent
 PACKAGE_ROOT = CURRENT_DIR.parent.parent
 sys.path.insert(0, str(CURRENT_DIR))
+
+from backend import Backend
+from PySide6.QtGui import QGuiApplication, QIcon
+from PySide6.QtQml import QQmlApplicationEngine
+from __feature__ import snake_case, true_property
+
+
+def get_resource_dir() -> Path:
+    """Returns directory containing qml and assets, handling PyInstaller sys._MEIPASS."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        bundle_path = Path(sys._MEIPASS)
+        if (bundle_path / "contents").exists():
+            return bundle_path / "contents"
+        return bundle_path
+    return CURRENT_DIR.parent  # contents/
+
 
 if __name__ == "__main__":
     app = QGuiApplication(sys.argv)
@@ -34,11 +44,15 @@ if __name__ == "__main__":
     if not os.environ.get("QT_QUICK_CONTROLS_STYLE"):
         os.environ["QT_QUICK_CONTROLS_STYLE"] = "org.kde.desktop"
 
-    qml_file = CURRENT_DIR.parent / "qml" / "main.qml"
-    if not qml_file.exists():
-        qml_file = CURRENT_DIR.parent / "qml" / "Main.qml"
+    contents_dir = get_resource_dir()
+    engine.add_import_path(str(contents_dir))
+    engine.add_import_path(str(contents_dir / "qml"))
 
-    icon_path = qml_file.parent / "img" / "icon.svg"
+    qml_file = contents_dir / "qml" / "main.qml"
+    if not qml_file.exists():
+        qml_file = contents_dir / "qml" / "Main.qml"
+
+    icon_path = contents_dir / "qml" / "img" / "icon.svg"
     if icon_path.exists():
         app.window_icon = QIcon(str(icon_path))
 

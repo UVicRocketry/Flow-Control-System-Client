@@ -1,0 +1,205 @@
+name: Build Multi-Platform Portable Packages
+
+on:
+  push:
+    branches: [ master, main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  # ============================================================================
+  # 1. LINUX BUILD (AppImage)
+  # ============================================================================
+  build-linux:
+    name: Linux AppImage (x86_64)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libxkbcommon-x11-0 libegl1-mesa \
+            libfontconfig1 libdbus-1-3
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Compile Application with PyInstaller
+        run: |
+          pyinstaller --clean --noconfirm packaging/FlowControl.spec
+
+      - name: Assemble AppDir and Package AppImage
+        run: |
+          mkdir -p build/AppDir/usr/bin
+          mkdir -p build/AppDir/usr/share/applications
+          mkdir -p build/AppDir/usr/share/icons/hicolor/256x256/apps
+          mkdir -p build/AppDir/usr/share/icons/hicolor/scalable/apps
+          
+          # Copy binaries and runtime launcher
+          cp -r dist/FlowControl/* build/AppDir/usr/bin/
+          cp packaging/AppRun build/AppDir/AppRun
+          chmod +x build/AppDir/AppRun
+
+          # Copy desktop entry and icons
+          cp packaging/flow-control.desktop build/AppDir/flow-control.desktop
+          cp packaging/flow-control.desktop build/AppDir/usr/share/applications/flow-control.desktop
+          cp packaging/icon.png build/AppDir/flow-control.png
+          cp packaging/icon.png build/AppDir/usr/share/icons/hicolor/256x256/apps/flow-control.png
+          cp contents/qml/img/icon.svg build/AppDir/flow-control.svg
+          cp contents/qml/img/icon.svg build/AppDir/usr/share/icons/hicolor/scalable/apps/flow-control.svg
+
+          # Download appimagetool and extract to run without requiring FUSE
+          curl -L "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -o appimagetool.AppImage
+          chmod +x appimagetool.AppImage
+          ./appimagetool.AppImage --appimage-extract
+
+          # Package into final AppImage
+          export ARCH=x86_64
+          ./squashfs-root/AppRun --no-appstream build/AppDir dist/FlowControl-Linux-x86_64.AppImage
+          chmod +x dist/FlowControl-Linux-x86_64.AppImage
+
+      - name: Upload Linux AppImage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowControl-Linux-x86_64.AppImage
+          path: dist/FlowControl-Linux-x86_64.AppImage
+          if-no-files-found: error
+
+  # ============================================================================
+  # 2. WINDOWS BUILD (Portable .exe & .zip)
+  # ============================================================================
+  build-windows:
+    name: Windows Portable (.exe & .zip)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Compile Application with PyInstaller
+        shell: pwsh
+        run: |
+          pyinstaller --clean --noconfirm packaging/FlowControl.spec
+
+      - name: Package Windows Portable Executable and ZIP
+        shell: pwsh
+        run: |
+          # Rename single-file executable
+          if (Test-Path "dist/FlowControl-Portable.exe") {
+            Move-Item -Path "dist/FlowControl-Portable.exe" -Destination "dist/FlowControl-Windows-Portable.exe" -Force
+          }
+          # Compress portable onedir folder to ZIP
+          if (Test-Path "dist/FlowControl") {
+            Compress-Archive -Path "dist/FlowControl/*" -DestinationPath "dist/FlowControl-Windows-Portable.zip" -Force
+          }
+
+      - name: Upload Windows Portable EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowControl-Windows-Portable.exe
+          path: dist/FlowControl-Windows-Portable.exe
+          if-no-files-found: error
+
+      - name: Upload Windows Portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowControl-Windows-Portable.zip
+          path: dist/FlowControl-Windows-Portable.zip
+          if-no-files-found: error
+
+  # ============================================================================
+  # 3. MACOS BUILD (.app Bundle, .dmg & .zip)
+  # ============================================================================
+  build-macos:
+    name: macOS Portable (.dmg & .zip)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Compile Application with PyInstaller
+        run: |
+          pyinstaller --clean --noconfirm packaging/FlowControl.spec
+
+      - name: Package macOS DMG and Portable ZIP
+        run: |
+          # Create Apple Disk Image (.dmg)
+          hdiutil create -volname "Flow Control" -srcfolder "dist/Flow Control.app" -ov -format UDZO "dist/FlowControl-macOS.dmg"
+
+          # Create Portable ZIP preserving Mach-O permissions and extended attributes
+          ditto -c -k --sequesterRsrc --keepParent "dist/Flow Control.app" "dist/FlowControl-macOS.zip"
+
+      - name: Upload macOS DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowControl-macOS.dmg
+          path: dist/FlowControl-macOS.dmg
+          if-no-files-found: error
+
+      - name: Upload macOS Portable ZIP Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowControl-macOS.zip
+          path: dist/FlowControl-macOS.zip
+          if-no-files-found: error
+
+  # ============================================================================
+  # 4. GITHUB RELEASE (Triggered on git tag push: v*)
+  # ============================================================================
+  release:
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ build-linux, build-windows, build-macos ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_artifacts
+
+      - name: Publish Release with Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release_artifacts/**/*.AppImage
+            release_artifacts/**/*.exe
+            release_artifacts/**/*.zip
+            release_artifacts/**/*.dmg
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
