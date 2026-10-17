@@ -43,7 +43,7 @@ jobs:
             qml6-module-qtquick-shapes
       - name: Match PySide6 version to KDE Neon's Qt6 version
         run: |
-          python -m pip install --upgrade pip || true
+          # python -m pip install --upgrade pip || true
           QT_VER=$(dpkg-query -W -f='${Version}' qt6-base-abi 2>/dev/null | grep -oE '^[0-9]+\.[0-9]+' || dpkg-query -W -f='${Version}' libqt6core6t64 2>/dev/null | grep -oE '^[0-9]+\.[0-9]+')
           echo "Detected KDE Neon Qt version: $QT_VER"
           grep -ivE "pyside6|shiboken6" requirements.txt > requirements-linux.txt || true
