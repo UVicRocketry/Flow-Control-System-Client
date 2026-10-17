@@ -17,10 +17,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -88,10 +88,10 @@ jobs:
           chmod +x dist/FlowControl-Linux-x86_64.AppImage
 
       - name: Upload Linux AppImage Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: FlowControl-Linux-x86_64.AppImage
           path: dist/FlowControl-Linux-x86_64.AppImage
+          archive: false
           if-no-files-found: error
 
 # ============================================================================
@@ -105,7 +105,7 @@ jobs:
         shell: msys2 {0}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up MSYS2 and install pre-built KF6 & Qt6 packages
         uses: msys2/setup-msys2@v2
@@ -149,17 +149,17 @@ jobs:
           }
 
       - name: Upload Windows Portable EXE
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: FlowControl-Windows-Portable.exe
           path: dist/FlowControl-Windows-Portable.exe
+          archive: false
           if-no-files-found: error
 
       - name: Upload Windows Portable ZIP
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: FlowControl-Windows-Portable.zip
           path: dist/FlowControl-Windows-Portable.zip
+          archive: false
           if-no-files-found: error
 
   # ============================================================================
@@ -170,10 +170,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -196,17 +196,17 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "dist/Flow Control.app" "dist/FlowControl-macOS.zip"
 
       - name: Upload macOS DMG Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: FlowControl-macOS.dmg
           path: dist/FlowControl-macOS.dmg
+          archive: false
           if-no-files-found: error
 
       - name: Upload macOS Portable ZIP Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: FlowControl-macOS.zip
           path: dist/FlowControl-macOS.zip
+          archive: false
           if-no-files-found: error
 
   # ============================================================================
@@ -219,12 +219,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all built artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release_artifacts
 
       - name: Publish Release with Assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             release_artifacts/**/*.AppImage
