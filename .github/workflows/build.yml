@@ -1,13 +1,11 @@
 name: Build Packages
-
 on:
   push:
-    branches: [ master, main ]
-    tags: [ 'v*' ]
+    branches: [master, main]
+    tags: ['v*']
   pull_request:
-    branches: [ master, main ]
+    branches: [master, main]
   workflow_dispatch:
-
 jobs:
   # ============================================================================
   # 1. LINUX BUILD (AppImage)
@@ -18,20 +16,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
-
-- name: Add KDE Neon repository for KF6 and Kirigami
+      - name: Add KDE Neon repository for KF6 and Kirigami
         run: |
           sudo mkdir -p /etc/apt/keyrings
           curl -fsSL https://archive.neon.kde.org/public.key | sudo gpg --dearmor -o /etc/apt/keyrings/neon-archive-keyring.gpg
           echo "deb [signed-by=/etc/apt/keyrings/neon-archive-keyring.gpg] http://archive.neon.kde.org/user noble main" | sudo tee /etc/apt/sources.list.d/neon.list
           sudo apt-get update
-
       - name: Install system libraries and Kirigami modules
         run: |
           sudo apt-get install -y --no-install-recommends \
@@ -47,7 +42,6 @@ jobs:
             qml6-module-qtquick-layouts \
             qml6-module-qtquick-templates \
             qml6-module-qtquick-shapes
-
       - name: Match PySide6 version to KDE Neon's Qt6 version
         run: |
           python -m pip install --upgrade pip
@@ -55,11 +49,9 @@ jobs:
           echo "Detected KDE Neon Qt version: $QT_VER"
           grep -ivE "pyside6|shiboken6" requirements.txt > requirements-linux.txt || true
           pip install "PySide6-Essentials~=${QT_VER}.0" -r requirements-linux.txt -r requirements-build.txt
-
       - name: Compile Application with PyInstaller
         run: |
           pyinstaller --clean --noconfirm packaging/FlowControl.spec
-
       - name: Assemble AppDir and Package AppImage
         run: |
           mkdir -p build/AppDir/usr/bin
@@ -93,14 +85,12 @@ jobs:
           export ARCH=x86_64
           ./squashfs-root/AppRun --no-appstream build/AppDir dist/FlowControl-Linux-x86_64.AppImage
           chmod +x dist/FlowControl-Linux-x86_64.AppImage
-
       - name: Upload Linux AppImage Artifact
         uses: actions/upload-artifact@v7
         with:
           path: dist/FlowControl-Linux-x86_64.AppImage
           archive: false
           if-no-files-found: error
-
   # ============================================================================
   # 2. WINDOWS BUILD (MSYS2 Pre-Built Binaries -> Portable .zip)
   # ============================================================================
@@ -113,7 +103,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
       - name: Set up MSYS2 and install pre-built KF6 & Qt6 packages
         uses: msys2/setup-msys2@v2
         with:
@@ -121,43 +110,28 @@ jobs:
           update: true
           cache: true
           install: >-
-            mingw-w64-ucrt-x86_64-python
-            mingw-w64-ucrt-x86_64-python-pip
-            mingw-w64-ucrt-x86_64-pyside6
-            mingw-w64-ucrt-x86_64-pyinstaller
-            mingw-w64-ucrt-x86_64-kirigami
-            mingw-w64-ucrt-x86_64-qqc2-desktop-style
-            mingw-w64-ucrt-x86_64-breeze
-            mingw-w64-ucrt-x86_64-breeze-icons
-            mingw-w64-ucrt-x86_64-kcoreaddons
-            mingw-w64-ucrt-x86_64-ki18n
-            mingw-w64-ucrt-x86_64-kiconthemes
-
+            mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip mingw-w64-ucrt-x86_64-pyside6 mingw-w64-ucrt-x86_64-pyinstaller mingw-w64-ucrt-x86_64-kirigami mingw-w64-ucrt-x86_64-qqc2-desktop-style mingw-w64-ucrt-x86_64-breeze mingw-w64-ucrt-x86_64-breeze-icons mingw-w64-ucrt-x86_64-kcoreaddons mingw-w64-ucrt-x86_64-ki18n mingw-w64-ucrt-x86_64-kiconthemes
       - name: Install remaining pure-Python dependencies
         run: |
           grep -ivE "pyside6|shiboken6" requirements.txt > requirements-msys2.txt || true
           if [ -s requirements-msys2.txt ]; then
             pip install --no-build-isolation -r requirements-msys2.txt
           fi
-
       - name: Compile Application with PyInstaller
         run: |
           export CRAFT_ROOT="$(cygpath -w /ucrt64)"
           pyinstaller --clean --noconfirm packaging/FlowControl.spec
-
       - name: Package Windows Portable ZIP
         shell: pwsh
         run: |
           # Use 7z with Maximum (-mx=9) compression
           7z a -tzip -mx=9 "dist/FlowControl-Windows-Portable.zip" "./dist/FlowControl/*"
-
       - name: Upload Windows Portable ZIP
         uses: actions/upload-artifact@v7
         with:
           path: dist/FlowControl-Windows-Portable.zip
           archive: false
           if-no-files-found: error
-
   # ============================================================================
   # 3. MACOS BUILD (.app Bundle, .dmg & .zip)
   # ============================================================================
@@ -167,22 +141,18 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
-
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-build.txt
-
       - name: Compile Application with PyInstaller
         run: |
           pyinstaller --clean --noconfirm packaging/FlowControl.spec
-
       - name: Package macOS DMG and Portable ZIP
         run: |
           # Use ULMO (LZMA compression, macOS 10.15+) -> ~35% smaller DMG!
@@ -190,35 +160,31 @@ jobs:
 
           # Create Portable ZIP preserving Mach-O permissions and extended attributes
           ditto -c -k --sequesterRsrc --keepParent "dist/Flow Control.app" "dist/FlowControl-macOS.zip"
-
       - name: Upload macOS DMG Artifact
         uses: actions/upload-artifact@v7
         with:
           path: dist/FlowControl-macOS.dmg
           archive: false
           if-no-files-found: error
-
       - name: Upload macOS Portable ZIP Artifact
         uses: actions/upload-artifact@v7
         with:
           path: dist/FlowControl-macOS.zip
           archive: false
           if-no-files-found: error
-
   # ============================================================================
   # 4. GITHUB RELEASE (Triggered on git tag push: v*)
   # ============================================================================
   release:
     name: Create GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ build-linux, build-windows, build-macos ]
+    needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Download all built artifacts
         uses: actions/download-artifact@v8
         with:
           path: release_artifacts
-
       - name: Publish Release with Assets
         uses: softprops/action-gh-release@v3
         with:
