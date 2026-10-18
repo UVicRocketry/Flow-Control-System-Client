@@ -6,29 +6,47 @@ on:
   pull_request:
     branches: [master, main]
   workflow_dispatch:
+
 jobs:
   # ============================================================================
   # 1. LINUX BUILD (AppImage)
   # ============================================================================
   build-linux:
     name: Linux AppImage (x86_64)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
       - name: Set up Python
         uses: actions/setup-python@v6
+        id: setup-python
         with:
-          python-version: '3.11'
-          cache: 'pip'
-      - name: Add KDE Neon repository for KF6 and Kirigami
+          python-version: '3.14'
+
+      - name: Cache Python installed site-packages & appimagetool
+        uses: actions/cache@v5
+        id: linux-py-cache
+        with:
+          path: |
+            /opt/hostedtoolcache/Python/3.14.*
+            ~/.cache/appimagetool
+          key: linux-py311-v2-${{ hashFiles('requirements.txt', 'requirements-build.txt') }}
+
+      - name: Cache KDE Neon APT .deb archives
+        uses: actions/cache@v5
+        id: apt-cache
+        with:
+          path: /var/cache/apt/archives
+          key: linux-apt-neon-kf6-v1
+
+      - name: Add KDE Neon repository & install KF6/Kirigami
         run: |
+          sudo rm -f /etc/apt/apt.conf.d/docker-clean
           sudo mkdir -p /etc/apt/keyrings
-          curl -fsSL https://archive.neon.kde.org/public.key | sudo gpg --dearmor -o /etc/apt/keyrings/neon-archive-keyring.gpg
+          curl -fsSL https://archive.neon.kde.org/public.key | sudo gpg --dearmor --yes -o /etc/apt/keyrings/neon-archive-keyring.gpg
           echo "deb [signed-by=/etc/apt/keyrings/neon-archive-keyring.gpg] http://archive.neon.kde.org/user noble main" | sudo tee /etc/apt/sources.list.d/neon.list
           sudo apt-get update
-      - name: Install system libraries and Kirigami modules
-        run: |
           sudo apt-get install -y --no-install-recommends \
             libgl1-mesa-dev libxkbcommon-x11-0 \
             libfontconfig1 libdbus-1-3 \
@@ -40,13 +58,18 @@ jobs:
             qml6-module-qtquick-controls \
             qml6-module-qtquick-layouts \
             qml6-module-qtquick-templates \
-            qml6-module-qtquick-shapes \
-      - name: Install remaining pure-Python dependencies
+            qml6-module-qtquick-shapes
+
+      - name: Install Python dependencies (Skipped on Cache Hit)
+        if: steps.linux-py-cache.outputs.cache-hit != 'true'
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-build.txt
+
       - name: Compile Application with PyInstaller
         run: |
           pyinstaller --clean --noconfirm packaging/FlowControl.spec
+
       - name: Assemble AppDir and Package AppImage
         run: |
           mkdir -p build/AppDir/usr/bin
@@ -71,21 +94,26 @@ jobs:
           cp contents/qml/img/icon.svg build/AppDir/flow-control.svg
           cp contents/qml/img/icon.svg build/AppDir/usr/share/icons/hicolor/scalable/apps/flow-control.svg
 
-          # Download appimagetool and extract to run without requiring FUSE
-          curl -L "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -o appimagetool.AppImage
-          chmod +x appimagetool.AppImage
-          ./appimagetool.AppImage --appimage-extract
+          # Use cached appimagetool if available, otherwise download once
+          mkdir -p ~/.cache/appimagetool
+          if [ ! -f ~/.cache/appimagetool/appimagetool.AppImage ]; then
+            curl -fsSL "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -o ~/.cache/appimagetool/appimagetool.AppImage
+            chmod +x ~/.cache/appimagetool/appimagetool.AppImage
+          fi
+          ~/.cache/appimagetool/appimagetool.AppImage --appimage-extract
 
           # Package into final AppImage
           export ARCH=x86_64
           ./squashfs-root/AppRun --no-appstream build/AppDir dist/FlowControl-Linux-x86_64.AppImage
           chmod +x dist/FlowControl-Linux-x86_64.AppImage
+
       - name: Upload Linux AppImage Artifact
         uses: actions/upload-artifact@v7
         with:
           path: dist/FlowControl-Linux-x86_64.AppImage
           archive: false
           if-no-files-found: error
+
   # ============================================================================
   # 2. WINDOWS BUILD (MSYS2 Pre-Built Binaries -> Portable .zip)
   # ============================================================================
@@ -98,76 +126,63 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-      - name: Set up MSYS2 and install pre-built KF6 & Qt6 packages
+
+      - name: Initialize MSYS2 Base Shell
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
-          update: true
-          cache: true
-          install: >-
-            mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip mingw-w64-ucrt-x86_64-pyside6 mingw-w64-ucrt-x86_64-pyinstaller mingw-w64-ucrt-x86_64-kirigami mingw-w64-ucrt-x86_64-qqc2-desktop-style mingw-w64-ucrt-x86_64-breeze mingw-w64-ucrt-x86_64-breeze-icons mingw-w64-ucrt-x86_64-kcoreaddons mingw-w64-ucrt-x86_64-ki18n mingw-w64-ucrt-x86_64-kiconthemes
-      - name: Install remaining pure-Python dependencies
+          location: D:\msys64
+          update: false
+          cache: false
+
+      - name: Restore Cached MSYS2 UCRT64 Installed Packages
+        uses: actions/cache@v5
+        id: msys2-env-cache
+        with:
+          path: |
+            D:\msys64\msys64\ucrt64
+            D:\msys64\msys64\var\lib\pacman
+          key: win-msys2-ucrt64-env-v3-${{ hashFiles('requirements.txt', 'requirements-build.txt') }}
+
+      - name: Install MSYS2 & Python packages (Skipped on Cache Hit)
+        if: steps.msys2-env-cache.outputs.cache-hit != 'true'
         run: |
+          pacman -Sy --noconfirm --needed \
+            mingw-w64-ucrt-x86_64-python \
+            mingw-w64-ucrt-x86_64-python-pip \
+            mingw-w64-ucrt-x86_64-pyside6 \
+            mingw-w64-ucrt-x86_64-pyinstaller \
+            mingw-w64-ucrt-x86_64-python-pillow \
+            mingw-w64-ucrt-x86_64-kirigami \
+            mingw-w64-ucrt-x86_64-qqc2-desktop-style \
+            mingw-w64-ucrt-x86_64-breeze \
+            mingw-w64-ucrt-x86_64-breeze-icons \
+            mingw-w64-ucrt-x86_64-kcoreaddons \
+            mingw-w64-ucrt-x86_64-ki18n \
+            mingw-w64-ucrt-x86_64-kiconthemes
+
           grep -ivE "pyside6|shiboken6" requirements.txt > requirements-msys2.txt || true
           if [ -s requirements-msys2.txt ]; then
             pip install --no-build-isolation -r requirements-msys2.txt
           fi
+
       - name: Compile Application with PyInstaller
         run: |
           export CRAFT_ROOT="$(cygpath -w /ucrt64)"
-          pyinstaller --clean --noconfirm packaging/FlowControl.spec
+          /ucrt64/bin/pyinstaller --clean --noconfirm packaging/FlowControl.spec
+
       - name: Package Windows Portable ZIP
         shell: pwsh
         run: |
-          # Use 7z with Maximum (-mx=9) compression
           7z a -tzip -mx=9 "dist/FlowControl-Windows-Portable.zip" "./dist/FlowControl/*"
+
       - name: Upload Windows Portable ZIP
         uses: actions/upload-artifact@v7
         with:
           path: dist/FlowControl-Windows-Portable.zip
           archive: false
           if-no-files-found: error
-  # ============================================================================
-  # 3. MACOS BUILD (.app Bundle, .dmg & .zip)
-  # not shipping cuz no need atm
-  # ============================================================================
-  # build-macos:
-  #   name: macOS Portable (.dmg & .zip)
-  #   runs-on: macos-latest
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v6
-  #     - name: Set up Python
-  #       uses: actions/setup-python@v6
-  #       with:
-  #         python-version: '3.11'
-  #         cache: 'pip'
-  #     - name: Install Python dependencies
-  #       run: |
-  #         python3 -m pip install --upgrade pip
-  #         pip install -r requirements.txt -r requirements-build.txt
-  #     - name: Compile Application with PyInstaller
-  #       run: |
-  #         pyinstaller --clean --noconfirm packaging/FlowControl.spec
-  #     - name: Package macOS DMG and Portable ZIP
-  #       run: |
-  #         # Use ULMO (LZMA compression, macOS 10.15+) -> ~35% smaller DMG!
-  #         hdiutil create -volname "Flow Control" -srcfolder "dist/Flow Control.app" -ov -format ULMO "dist/FlowControl-macOS.dmg"
-  #
-  #         # Create Portable ZIP preserving Mach-O permissions and extended attributes
-  #         ditto -c -k --sequesterRsrc --keepParent "dist/Flow Control.app" "dist/FlowControl-macOS.zip"
-  #     - name: Upload macOS DMG Artifact
-  #       uses: actions/upload-artifact@v7
-  #       with:
-  #         path: dist/FlowControl-macOS.dmg
-  #         archive: false
-  #         if-no-files-found: error
-  #     - name: Upload macOS Portable ZIP Artifact
-  #       uses: actions/upload-artifact@v7
-  #       with:
-  #         path: dist/FlowControl-macOS.zip
-  #         archive: false
-  #         if-no-files-found: error
+
   # ============================================================================
   # 4. GITHUB RELEASE (Triggered on git tag push: v*)
   # ============================================================================
@@ -184,10 +199,4 @@ jobs:
       - name: Publish Release with Assets
         uses: softprops/action-gh-release@v3
         with:
-          files: |
-            release_artifacts/**/*.AppImage
-            release_artifacts/**/*.zip
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: ""

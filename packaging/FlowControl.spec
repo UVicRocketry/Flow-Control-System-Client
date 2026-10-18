@@ -195,6 +195,7 @@ hidden_imports = [
     "__feature__",
     "shiboken6",
     "backend",
+    "splash",
     "PySide6",
     "PySide6.QtCore",
     "PySide6.QtGui",

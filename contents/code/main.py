@@ -14,6 +14,7 @@ CURRENT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(CURRENT_DIR))
 
 from backend import Backend
+from splash import SplashScreen
 from PySide6.QtGui import QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -37,6 +38,26 @@ def get_resource_dir() -> Path:
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
+    contents_dir = get_resource_dir()
+    icon_path = contents_dir / "qml" / "img" / "icon.svg"
+    if not icon_path.exists():
+        icon_path = contents_dir.parent / "packaging" / "icon.png"
+        app.window_icon = QIcon(str(icon_path))
+
+    # Show instant splash screen while QML / Kirigami / backend loads
+    splash = SplashScreen(contents_dir / "qml", icon_path)
+    splash.show()
+    QApplication.process_events()
+    splash.set_status("Starting Flow Control...")
+
+    # Close PyInstaller bootloader splash if present
+    try:
+        import pyi_splash
+        if pyi_splash.is_alive():
+            pyi_splash.close()
+    except (ImportError, AttributeError):
+        pass
+
     if sys.platform.startswith("linux"):
         host_icon_dirs = [
             str(Path.home() / ".local/share/icons"),
@@ -54,6 +75,7 @@ if __name__ == "__main__":
     QIcon.set_fallback_theme_name("breeze")
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
+    splash.set_status("Initializing backend controller...")
     engine = QQmlApplicationEngine()
     backend = Backend()
     engine.root_context().set_context_property("backend", backend)
@@ -97,10 +119,7 @@ if __name__ == "__main__":
                 if (craft_root / qml_sub).exists():
                     engine.add_import_path(str(craft_root / qml_sub))
 
-    icon_path = contents_dir / "qml" / "img" / "icon.svg"
-    if icon_path.exists():
-        app.window_icon = QIcon(str(icon_path))
-
+    splash.set_status("Loading user interface...")
     qml_file = contents_dir / "qml" / "main.qml"
     if not qml_file.exists():
         qml_file = contents_dir / "qml" / "Main.qml"
@@ -108,6 +127,7 @@ if __name__ == "__main__":
     engine.load(qml_file)
 
     if not engine.root_objects():
+        splash.close()
         detailed_err = (
             "\n".join(qml_errors) if qml_errors else "Unknown QML loading error."
         )
@@ -137,6 +157,11 @@ if __name__ == "__main__":
         )
         msg_box.exec()
         sys.exit(-1)
+
+    # Automatically dismiss loading window when main window renders its first frame
+    main_window = engine.root_objects()[0]
+    splash.finish(engine.root_objects()[0])
+    app.window_icon = QIcon(str(icon_path))
 
     # main entry point
     backend.connect()
