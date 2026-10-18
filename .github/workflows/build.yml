@@ -12,7 +12,7 @@ jobs:
   # ============================================================================
   build-linux:
     name: Linux AppImage (x86_64)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -40,7 +40,8 @@ jobs:
             qml6-module-qtquick-controls \
             qml6-module-qtquick-layouts \
             qml6-module-qtquick-templates \
-            qml6-module-qtquick-shapes
+            qml6-module-qtquick-shapes \
+            pyinstaller
       - name: Install remaining pure-Python dependencies
         run: |
           grep -ivE "pyside6|shiboken6" requirements.txt > requirements-msys2.txt || true
