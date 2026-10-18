@@ -41,13 +41,9 @@ jobs:
             qml6-module-qtquick-layouts \
             qml6-module-qtquick-templates \
             qml6-module-qtquick-shapes \
-            pyinstaller
       - name: Install remaining pure-Python dependencies
         run: |
-          grep -ivE "pyside6|shiboken6" requirements.txt > requirements-msys2.txt || true
-          if [ -s requirements-msys2.txt ]; then
-            pip install --no-build-isolation -r requirements-msys2.txt
-          fi
+          pip install -r requirements.txt -r requirements-build.txt
       - name: Compile Application with PyInstaller
         run: |
           pyinstaller --clean --noconfirm packaging/FlowControl.spec
