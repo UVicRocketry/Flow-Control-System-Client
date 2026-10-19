@@ -195,7 +195,7 @@ Item {
                 id: actionButton
 
                 Layout.preferredHeight: Kirigami.Units.gridUnit * 1.8
-                implicitWidth: Kirigami.Units.gridUnit * 6.5
+                implicitWidth: Kirigami.Units.iconSizes.medium + text.length * Kirigami.Units.gridUnit / 2.2
                 text: wsRoot.isConnected ? "Disconnect" : (wsRoot.isConnecting ? "Connecting" : "Connect")
                 icon.name: wsRoot.isConnected ? "network-disconnect" : "network-connect"
                 highlighted: !wsRoot.isConnected && !wsRoot.isConnecting

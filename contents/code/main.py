@@ -32,8 +32,7 @@ def get_resource_dir() -> Path:
             if (bundle_path / "contents").exists()
             else bundle_path
         )
-    return CURRENT_DIR.parent  # contents/
-
+    return CURRENT_DIR.parent  # contents
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
@@ -66,13 +65,16 @@ if __name__ == "__main__":
         ]
         QIcon.set_theme_search_paths(host_icon_dirs + QIcon.theme_search_paths())
 
-    if IS_FROZEN:
-        # Append bundled icons at the END of the search paths as a fallback
+    # Append bundled icons at the END of the search paths as a fallback
+    bundled_icons = contents_dir / "icons"
+    if not bundled_icons.exists() and IS_FROZEN:
         bundled_icons = Path(sys._MEIPASS) / "icons"
-        if bundled_icons.exists():
-            QIcon.set_theme_search_paths(QIcon.theme_search_paths() + [str(bundled_icons)])
 
-    QIcon.set_fallback_theme_name("breeze")
+    if bundled_icons.exists():
+        QIcon.set_theme_search_paths(QIcon.theme_search_paths() + [str(bundled_icons)])
+        QIcon.set_fallback_theme_name("breeze-fallback")
+    else:
+        QIcon.set_fallback_theme_name("breeze")
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     splash.set_status("Initializing backend controller...")
@@ -123,6 +125,9 @@ if __name__ == "__main__":
     qml_file = contents_dir / "qml" / "main.qml"
     if not qml_file.exists():
         qml_file = contents_dir / "qml" / "Main.qml"
+
+    if not os.environ.get("QT_QUICK_CONTROLS_STYLE"):
+        os.environ["QT_QUICK_CONTROLS_STYLE"] = "org.kde.desktop"
 
     engine.load(qml_file)
 

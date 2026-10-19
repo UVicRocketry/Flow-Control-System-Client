@@ -57,6 +57,10 @@ metadata_file = REPO_ROOT / "metadata.json"
 if metadata_file.exists():
     datas.append((str(metadata_file), "."))
 
+icons_dir = REPO_ROOT / "contents" / "icons"
+if icons_dir.exists():
+    datas.append((str(icons_dir), "contents/icons"))
+
 binaries = []
 
 # ============================================================================
@@ -196,16 +200,8 @@ if sys.platform in ("win32", "darwin") and craft_root.exists():
         if "styles" in style_plugin.parts and style_plugin.suffix in (".dll", ".dylib"):
             add_binary_once(style_plugin, "PySide6/Qt/plugins/styles")
 
-    # 3. Collect Breeze icon theme directories AND/OR binary .rcc bundle
-    for rcc in craft_root.rglob("breeze-icons.rcc"):
-        datas.append((str(rcc), "iconthemes"))
-        break
-
-    for icon_sub in ["bin/data/icons", "share/icons"]:
-        cand_icons = craft_root / icon_sub
-        if cand_icons.exists():
-            datas.append((str(cand_icons), "icons"))
-            break
+    # 3. Breeze icons: Minimal fallback icons are already bundled via contents/icons
+    # rather than copying the entirety of Breeze icons (~100MB+).
 
 # ============================================================================
 # 5. ANALYSIS & PACKAGING
