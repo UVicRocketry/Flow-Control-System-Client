@@ -58,7 +58,9 @@ jobs:
             qml6-module-qtquick-controls \
             qml6-module-qtquick-layouts \
             qml6-module-qtquick-templates \
-            qml6-module-qtquick-shapes
+            qml6-module-qtquick-shapes \
+            qml6-module-qtwebsockets \
+            libqt6websockets6-dev
 
       - name: Install Python dependencies (Skipped on Cache Hit)
         if: steps.linux-py-cache.outputs.cache-hit != 'true'
@@ -142,7 +144,7 @@ jobs:
           path: |
             D:\msys64\msys64\ucrt64
             D:\msys64\msys64\var\lib\pacman
-          key: win-msys2-ucrt64-env-v3-${{ hashFiles('requirements.txt', 'requirements-build.txt') }}
+          key: win-msys2-ucrt64-env-v4-${{ hashFiles('requirements.txt', 'requirements-build.txt') }}
 
       - name: Install MSYS2 & Python packages (Skipped on Cache Hit)
         if: steps.msys2-env-cache.outputs.cache-hit != 'true'
@@ -159,7 +161,8 @@ jobs:
             mingw-w64-ucrt-x86_64-breeze-icons \
             mingw-w64-ucrt-x86_64-kcoreaddons \
             mingw-w64-ucrt-x86_64-ki18n \
-            mingw-w64-ucrt-x86_64-kiconthemes
+            mingw-w64-ucrt-x86_64-kiconthemes \
+            mingw-w64-ucrt-x86_64-qt6-websockets
 
           grep -ivE "pyside6|shiboken6" requirements.txt > requirements-msys2.txt || true
           if [ -s requirements-msys2.txt ]; then

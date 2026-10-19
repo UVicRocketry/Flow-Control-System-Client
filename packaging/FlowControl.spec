@@ -116,6 +116,24 @@ if "kirigami" not in collected_kde_mods:
         f"CRITICAL: 'org/kde/kirigami' was not found in any QML search path: {qml_search_roots}"
     )
 
+# Collect QtWebSockets QML module
+collected_extra_mods = set()
+for root in qml_search_roots:
+    for mod_name in ["QtWebSockets"]:
+        cand_mod = root / mod_name
+        if cand_mod.exists() and mod_name not in collected_extra_mods:
+            collected_extra_mods.add(mod_name)
+            datas.append((str(cand_mod), mod_name))
+            for ext in ("*.so*", "*.dll", "*.dylib"):
+                for lib_file in cand_mod.rglob(ext):
+                    try:
+                        rel_dir = lib_file.parent.relative_to(root)
+                        binaries.append((str(lib_file.resolve()), str(rel_dir)))
+                        if lib_file.is_symlink():
+                            binaries.append((str(lib_file), str(rel_dir)))
+                    except Exception:
+                        pass
+
 # ============================================================================
 # 4. SHARED LIBRARIES & BREEZE ICON ENGINE (Linux, Windows, macOS)
 # ============================================================================
@@ -138,7 +156,7 @@ def add_binary_once(src_path: Path, dest_dir: str = "."):
 if sys.platform.startswith("linux"):
     for l_dir in [Path("/usr/lib/x86_64-linux-gnu"), Path("/usr/lib"), Path("/usr/lib64")]:
         if l_dir.exists():
-            for pattern in ["*Kirigami*.so*", "*KF6*.so*", "*Breeze*.so*", "*qqc2*.so*"]:
+            for pattern in ["*Kirigami*.so*", "*KF6*.so*", "*Breeze*.so*", "*qqc2*.so*", "*WebSockets*.so*"]:
                 for match in l_dir.glob(pattern):
                     add_binary_once(match, ".")
             for plugin in l_dir.rglob("*KIconEnginePlugin*.so*"):
@@ -149,12 +167,13 @@ if sys.platform.startswith("linux"):
 
 # Windows & macOS Craft shared libraries, KIconEnginePlugin, and Breeze Icons
 if sys.platform in ("win32", "darwin") and craft_root.exists():
-    # 1. Collect KF6, Kirigami, Breeze, and gettext/iconv runtime libraries
+    # 1. Collect KF6, Kirigami, Breeze, WebSockets, and gettext/iconv runtime libraries
     lib_patterns = [
         "*KF6*",
         "*Kirigami*",
         "*Breeze*",
         "*qqc2*",
+        "*WebSockets*",
         "*intl*",
         "*iconv*",
         "*pcre2*",
@@ -209,11 +228,13 @@ hidden_imports = [
     "PySide6.QtSvgWidgets",
     "PySide6.QtOpenGL",
     "PySide6.QtOpenGLWidgets",
+    "PySide6.QtWebSockets",
 ]
 
 hidden_imports += collect_submodules("PySide6.QtQuickControls2")
 hidden_imports += collect_submodules("PySide6.QtQuick")
 hidden_imports += collect_submodules("PySide6.QtQml")
+hidden_imports += collect_submodules("PySide6.QtWebSockets")
 
 excludes = [
     "tkinter",
