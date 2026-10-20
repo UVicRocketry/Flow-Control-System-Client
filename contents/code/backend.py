@@ -1,8 +1,8 @@
 # This Python file uses the following encoding: utf-8
 """
 Flow Control Client - Backend Controller
-Provides QObject bridge between PySide6/QML and native QWebSocket.
-Manages application configuration across platforms and environments.
+Provides QObject bridge between PySide6/QML and configuration management.
+Manages application configuration, server connection settings, and persistence.
 """
 
 import sys
@@ -10,7 +10,10 @@ import os
 import json
 import shutil
 from pathlib import Path
+
 from PySide6 import QtCore
+from __feature__ import snake_case, true_property
+assert snake_case, true_property
 
 CURRENT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = CURRENT_DIR.parent.parent
@@ -128,10 +131,14 @@ def get_config_dir() -> Path:
             if not dest_file.exists():
                 try:
                     shutil.copy2(src_file, dest_file)
-                    print(f"[CONFIG] Initialized default user config: {dest_file}")
+                    print(
+                        "[CONFIG] Init: ",
+                        f"default user config: {dest_file}"
+                    )
                 except Exception as err:
                     print(
-                        f"[CONFIG] Warning: Could not copy template {src_file.name}: {err}",
+                        "[CONFIG] Warning: ",
+                        f"Could not copy template {src_file.name}: {err}",
                         file=sys.stderr,
                     )
 
@@ -149,7 +156,9 @@ def get_default_config_file() -> Path:
 
 
 def ensure_config_file_exists():
-    """Ensures CONFIG_FILE exists by copying from template config/config.json if absent."""
+    """
+    populates CONFIG_FILE if absent
+    """
     if not CONFIG_FILE.exists():
         template_file = get_default_config_file()
         if template_file.exists():
@@ -157,16 +166,19 @@ def ensure_config_file_exists():
                 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(template_file, CONFIG_FILE)
                 print(
-                    f"[CONFIG] Initialized config file from {template_file} -> {CONFIG_FILE}"
+                    "[CONFIG] Init: ",
+                    f"config file from {template_file} -> {CONFIG_FILE}"
                 )
             except Exception as err:
                 print(
-                    f"[CONFIG] Notice: Could not copy template config to {CONFIG_FILE}: {err}",
+                    "[CONFIG] Notice: ",
+                    f"Could not copy template config to {CONFIG_FILE}: {err}",
                     file=sys.stderr,
                 )
         else:
             print(
-                f"[CONFIG] Warning: Template config file not found at {template_file}",
+                "[CONFIG] Warning: ",
+                f"Template config file not found at {template_file}",
                 file=sys.stderr,
             )
 
@@ -177,11 +189,20 @@ ensure_config_file_exists()
 class Backend(QtCore.QObject):
     """
     QObject bridge for PySide6/QML.
-    Exposes configuration properties and settings accessors.
+    exposes configuration properties and settings
     """
 
-    config_changed = QtCore.Signal()
-    server_url_changed = QtCore.Signal(str)
+    configChanged = QtCore.Signal()
+    serverUrlChanged = QtCore.Signal(str)
+    autoReconnectChanged = QtCore.Signal(bool)
+    reconnectIntervalMsChanged = QtCore.Signal(int)
+    connectRequested = QtCore.Signal()
+
+    config_changed = configChanged
+    server_url_changed = serverUrlChanged
+    auto_reconnect_changed = autoReconnectChanged
+    reconnect_interval_ms_changed = reconnectIntervalMsChanged
+    connect_requested = connectRequested
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -193,7 +214,10 @@ class Backend(QtCore.QObject):
             if is_dev_environment()
             else f"Standalone ({sys.platform})"
         )
-        print(f"[CONFIG] Environment: {env_type} | Config directory: {CONFIG_DIR}")
+        print(
+            "[CONFIG] Environment: ",
+            f"{env_type} | Config directory: {CONFIG_DIR}"
+        )
 
     @QtCore.Property(str, notify=config_changed)
     def config_dir(self) -> str:
@@ -212,27 +236,111 @@ class Backend(QtCore.QObject):
         server_sec = self._config_data.get("server", {})
         return server_sec.get("default_url", "ws://127.0.0.1:8080/ws")
 
+    @server_url.setter
+    def server_url(self, url: str):
+        url = url.strip()
+        if not url:
+            return
+        if "server" not in self._config_data:
+            self._config_data["server"] = {}
+        if self._config_data["server"].get("default_url") != url:
+            self._config_data["server"]["default_url"] = url
+            self.save_config(self._config_data)
+            self.server_url_changed.emit(url)
+
+    @QtCore.Property(bool, notify=auto_reconnect_changed)
+    def auto_reconnect(self) -> bool:
+        server_sec = self._config_data.get("server", {})
+        return bool(server_sec.get("auto_reconnect", True))
+
+    @auto_reconnect.setter
+    def auto_reconnect(self, enabled: bool):
+        if "server" not in self._config_data:
+            self._config_data["server"] = {}
+        if self._config_data["server"].get("auto_reconnect") != enabled:
+            self._config_data["server"]["auto_reconnect"] = enabled
+            self.save_config(self._config_data)
+            self.auto_reconnect_changed.emit(enabled)
+
+    @QtCore.Property(int, notify=reconnect_interval_ms_changed)
+    def reconnect_interval_ms(self) -> int:
+        server_sec = self._config_data.get("server", {})
+        return int(server_sec.get("reconnect_interval_ms", 2000))
+
+    @reconnect_interval_ms.setter
+    def reconnect_interval_ms(self, interval: int):
+        if "server" not in self._config_data:
+            self._config_data["server"] = {}
+        if self._config_data["server"].get("reconnect_interval_ms") != interval:
+            self._config_data["server"]["reconnect_interval_ms"] = interval
+            self.save_config(self._config_data)
+            self.reconnect_interval_ms_changed.emit(interval)
+
+    # Compatibility camelCase property aliases
+    @QtCore.Property(str, notify=server_url_changed)
+    def serverUrl(self) -> str:
+        return self.server_url
+
+    @serverUrl.setter
+    def serverUrl(self, url: str):
+        self.server_url = url
+
+    @QtCore.Property(bool, notify=auto_reconnect_changed)
+    def autoReconnect(self) -> bool:
+        return self.auto_reconnect
+
+    @autoReconnect.setter
+    def autoReconnect(self, enabled: bool):
+        self.auto_reconnect = enabled
+
+    @QtCore.Property(int, notify=reconnect_interval_ms_changed)
+    def reconnectIntervalMs(self) -> int:
+        return self.reconnect_interval_ms
+
+    @reconnectIntervalMs.setter
+    def reconnectIntervalMs(self, interval: int):
+        self.reconnect_interval_ms = interval
+
     @QtCore.Slot(result="QVariantMap")
     def load_config(self) -> dict:
-        """Loads configuration from CONFIG_FILE, falling back to template config/config.json."""
-        target_path = CONFIG_FILE if CONFIG_FILE.exists() else get_default_config_file()
+        """Loads configuration from CONFIG_FILE"""
+        if CONFIG_FILE.exists():
+            target_path = CONFIG_FILE
+        else:
+            get_default_config_file()
+
         if target_path.exists():
             try:
                 with open(target_path, "r", encoding="utf-8") as f:
                     self._config_data = json.load(f)
             except Exception as err:
-                print(f"[CONFIG] Error reading {target_path}: {err}.", file=sys.stderr)
+                print(
+                    "[CONFIG] Error: ",
+                    f"reading {target_path}: {err}.",
+                    file=sys.stderr
+                )
                 self._config_data = {}
         else:
             print(
-                f"[CONFIG] Error: No configuration file found at {target_path}.",
-                file=sys.stderr,
+                "[CONFIG] Error: ",
+                f"No configuration file found at {target_path}.",
+                file=sys.stderr
             )
             self._config_data = {}
 
         ensure_config_file_exists()
+
+        # Environment variable override takes highest precedence for server URL
+        env_url = os.environ.get("FLOW_CONTROL_WS_URL")
+        if env_url:
+            if "server" not in self._config_data:
+                self._config_data["server"] = {}
+            self._config_data["server"]["default_url"] = env_url
+
         self.config_changed.emit()
         self.server_url_changed.emit(self.server_url)
+        self.auto_reconnect_changed.emit(self.auto_reconnect)
+        self.reconnect_interval_ms_changed.emit(self.reconnect_interval_ms)
         return self._config_data
 
     @QtCore.Slot("QVariantMap", result=bool)
@@ -244,15 +352,15 @@ class Backend(QtCore.QObject):
                 json.dump(data, f, indent=4)
             self._config_data = data
             self.config_changed.emit()
-            self.server_url_changed.emit(self.server_url)
             return True
         except Exception as err:
             print(
-                f"[CONFIG] Error saving config to {CONFIG_FILE}: {err}", file=sys.stderr
+                "[CONFIG] Error: ",
+                f"saving config to {CONFIG_FILE}: {err}",
+                file=sys.stderr
             )
             return False
 
-    # duplicate slot for default overload
     @QtCore.Slot(str, result="QVariant")
     @QtCore.Slot(str, "QVariant", result="QVariant")
     def get_setting(self, key: str, default=None):
@@ -263,7 +371,40 @@ class Backend(QtCore.QObject):
         self._config_data[key] = value
         self.save_config(self._config_data)
 
+    @QtCore.Slot(str)
+    def set_server_url(self, url: str):
+        self.server_url = url
+
+    @QtCore.Slot(bool)
+    def set_auto_reconnect(self, enabled: bool):
+        self.auto_reconnect = enabled
+
+    @QtCore.Slot(int)
+    def set_reconnect_interval_ms(self, interval: int):
+        self.reconnect_interval_ms = interval
+
+    @QtCore.Slot(str)
+    def setServerUrl(self, url: str):
+        self.set_server_url(url)
+
+    @QtCore.Slot(bool)
+    def setAutoReconnect(self, enabled: bool):
+        self.set_auto_reconnect(enabled)
+
+    @QtCore.Slot(int)
+    def setReconnectIntervalMs(self, interval: int):
+        self.set_reconnect_interval_ms(interval)
+
+    @QtCore.Slot()
+    def connect_to_server(self):
+        """Signals QML/listeners to initiate WebSocket connection."""
+        self.connect_requested.emit()
+
+    @QtCore.Slot()
+    def connectToServer(self):
+        self.connect_to_server()
+
     @QtCore.Slot()
     def connect(self):
-        """Connection entrypoint."""
-        pass
+        """Connection entrypoint called on startup."""
+        self.connect_to_server()

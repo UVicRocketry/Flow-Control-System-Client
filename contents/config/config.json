@@ -1,7 +1,7 @@
 {
     "server": {
         "default_url": "ws://127.0.0.1:8080/ws",
-        "auto_reconnect": true,
+        "auto_reconnect": false,
         "reconnect_interval_ms": 2000
     },
     "valves": [

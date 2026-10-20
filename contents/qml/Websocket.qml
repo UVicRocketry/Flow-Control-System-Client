@@ -17,7 +17,7 @@ Item {
     readonly property string errorString: socket ? socket.errorString : ""
     // Server URL
     property string currentUrl: {
-        socket && socket.url && socket.url.toString().length > 0 ? socket.url.toString() : (backend ? backend.server_url : "ws://127.0.0.1:8080/ws");
+        socket && socket.url && socket.url.toString().length > 0 ? socket.url.toString() : (backend ? backend.serverUrl : "ws://127.0.0.1:8080/ws");
     }
     readonly property color statusColor: {
         if (isConnected)
@@ -59,14 +59,87 @@ Item {
     signal messageReceived(string message)
     signal jsonReceived(var data)
 
+    // Reconnection and lifecycle timer
+    Timer {
+        id: autoReconnectTimer
+
+        interval: backend ? backend.reconnectIntervalMs : 2000
+        repeat: true
+        running: {
+            if (!compact)
+                return false;
+            if (!backend || !backend.autoReconnect || (typeof root !== "undefined" && root && root.userDisconnected))
+                return false;
+            return socket && socket.status !== WebSocket.Open && socket.status !== WebSocket.Connecting;
+        }
+        onTriggered: {
+            console.log("[WS] Auto-reconnecting to " + socket.url);
+            socket.active = false;
+            socket.active = true;
+        }
+    }
+
+    Component.onCompleted: {
+        if (compact && backend && backend.autoReconnect && socket && !socket.active) {
+            console.log("[WS] Auto-connecting to " + socket.url);
+            socket.active = true;
+        }
+    }
+
+    Connections {
+        target: backend
+
+        function onConnectRequested() {
+            if (compact && backend && backend.autoReconnect && socket && !socket.active) {
+                console.log("[WS] connectRequested: activating WebSocket");
+                socket.active = true;
+            }
+        }
+    }
+
+    Connections {
+        target: wsRoot.socket
+
+        function onStatusChanged(status) {
+            if (!compact)
+                return;
+            if (status === WebSocket.Open) {
+                console.log("[WS] WebSocket Connected to " + wsRoot.socket.url);
+            } else if (status === WebSocket.Error) {
+                console.log("[WS] WebSocket Error: " + wsRoot.socket.errorString);
+            } else if (status === WebSocket.Closed) {
+                console.log("[WS] WebSocket Disconnected.");
+            }
+        }
+
+        function onTextMessageReceived(message) {
+            wsRoot.messageReceived(message);
+            try {
+                let data = JSON.parse(message);
+                wsRoot.jsonReceived(data);
+            } catch (e) {
+                console.log("[WS] Received non-JSON message: " + message);
+            }
+        }
+    }
+
     // Methods
     function connectSocket(targetUrl) {
         if (!socket)
             return ;
 
-        var urlToUse = targetUrl || currentUrl;
+        if (typeof root !== "undefined" && root && root.hasOwnProperty("userDisconnected")) {
+            root.userDisconnected = false;
+        }
+
+        var urlToUse = (targetUrl && targetUrl.trim().length > 0) ? targetUrl.trim() : wsRoot.currentUrl;
         urlToUse = urlToUse.trim();
         wsRoot.currentUrl = urlToUse;
+
+        if (backend && urlToUse.length > 0 && urlToUse !== backend.serverUrl) {
+            backend.serverUrl = urlToUse;
+        }
+
         socket.url = urlToUse;
         socket.active = false;
         socket.active = true;
@@ -75,6 +148,10 @@ Item {
     function disconnectSocket() {
         if (!socket)
             return ;
+
+        if (typeof root !== "undefined" && root && root.hasOwnProperty("userDisconnected")) {
+            root.userDisconnected = true;
+        }
 
         socket.active = false;
     }

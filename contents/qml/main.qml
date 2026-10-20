@@ -10,8 +10,19 @@ Kirigami.ApplicationWindow {
 
     // Central WebSocket connection shared by all views and components
     property alias webSocket: sharedWebSocket
+    property bool userDisconnected: false
 
     signal webSocketMessageReceived(var data)
+
+    function sendTextMessage(message) {
+        if (sharedWebSocket && sharedWebSocket.status === WebSocket.Open)
+            sharedWebSocket.sendTextMessage(message);
+
+    }
+
+    function sendJson(data) {
+        sendTextMessage(JSON.stringify(data));
+    }
 
     minimumHeight: Kirigami.Units.gridUnit * 20
     minimumWidth: Kirigami.Units.gridUnit * 30
@@ -21,11 +32,9 @@ Kirigami.ApplicationWindow {
     pageStack.globalToolBar.showNavigationButtons: Kirigami.ApplicationHeaderStyle.NoNavigationButtons
 
     WebSocket {
-        // Non-JSON message
-
         id: sharedWebSocket
 
-        url: backend ? backend.server_url : "ws://127.0.0.1:8080/ws"
+        url: backend ? backend.serverUrl : "ws://127.0.0.1:8080/ws"
         active: false
         onTextMessageReceived: function(message) {
             try {
@@ -48,7 +57,19 @@ Kirigami.ApplicationWindow {
                     }
 
                     Controls.CheckBox {
-                        id: autoconnectBool
+                        checked: backend ? backend.autoReconnect : false
+                        onToggled: {
+                            if (backend)
+                                backend.autoReconnect = checked;
+
+                            if (checked) {
+                                root.userDisconnected = false;
+                                if (sharedWebSocket.status !== WebSocket.Open && sharedWebSocket.status !== WebSocket.Connecting) {
+                                    sharedWebSocket.active = false;
+                                    sharedWebSocket.active = true;
+                                }
+                            }
+                        }
                     }
 
                 }
@@ -76,11 +97,11 @@ Kirigami.ApplicationWindow {
             }
 
             // 1
-            Graphs {
+            Actuators {
             }
 
             // 2
-            Actuators {
+            Graphs {
             }
 
         }
