@@ -20,12 +20,13 @@ DEFAULT_ICONS = [
     "network-disconnect",
     "arrow-down",
     # Kirigami / dialog / status
+    "dialog-warning",
+    "dialog-information",
     "emblem-error",
     "emblem-warning",
     "emblem-information",
     "emblem-checked",
     "window-close",
-    "dialog-information",
     "dialog-cancel",
     "dialog-warning",
     "document-close",
@@ -46,7 +47,7 @@ DEFAULT_ICONS = [
     "edit-download",
     "search",
     "search-symbolic",
-    "usermenu-down",
+    "arrow-down",
 ]
 
 SEARCH_THEMES = [
