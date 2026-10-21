@@ -79,9 +79,6 @@ def configure_icon_themes(contents_dir: Path) -> None:
         QIcon.set_fallback_theme_name("breeze")
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-    if not os.environ.get("QT_QUICK_CONTROLS_STYLE"):
-        os.environ["QT_QUICK_CONTROLS_STYLE"] = "org.kde.desktop"
-
 
 def add_dev_qml_paths(engine: QQmlApplicationEngine) -> None:
     """Adds OS-specific QML import paths for non-frozen development runs."""
@@ -169,6 +166,13 @@ def handle_startup_error(
 
 def main() -> None:
     """Bootstrapper"""
+
+    # platform styling
+    if not os.environ.get("QT_QUICK_CONTROLS_STYLE"):
+        os.environ["QT_QUICK_CONTROLS_STYLE"] = "org.kde.desktop"
+        if sys.platform == "win32":
+            os.environ["QT_QUICK_CONTROLS_STYLE"] = "FluentWinUI3"
+
     app = QApplication(sys.argv)
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 

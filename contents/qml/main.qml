@@ -24,8 +24,8 @@ Kirigami.ApplicationWindow {
         sendTextMessage(JSON.stringify(data));
     }
 
-    minimumHeight: Kirigami.Units.gridUnit * 20
-    minimumWidth: Kirigami.Units.gridUnit * 30
+    minimumHeight: Kirigami.Units.gridUnit * 34
+    minimumWidth: Kirigami.Units.gridUnit * 45
     title: "Flow Control System"
     // only use one main page to keep toolbar consistent
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.ToolBar

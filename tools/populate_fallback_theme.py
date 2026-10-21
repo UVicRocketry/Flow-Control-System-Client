@@ -25,17 +25,35 @@ DEFAULT_ICONS = [
     "emblem-information",
     "emblem-checked",
     "window-close",
+    "dialog-information",
+    "dialog-cancel",
+    "dialog-warning",
+    "document-close",
+    "view-close",
     "view-refresh",
     "configure",
     "edit-clear",
     "document-save",
+    "document-open",
+    "media-record",
+    "folder",
+    "folder-open",
+    "text-csv",
+    "network-server",
+    "edit-undo",
+    "edit-rename",
+    "edit-delete",
+    "edit-download",
+    "search",
+    "search-symbolic",
+    "usermenu-down",
 ]
 
 SEARCH_THEMES = [
-    Path("/usr/share/icons/breeze"),
-    Path("/usr/local/share/icons/breeze"),
-    Path.home() / ".local/share/icons/breeze",
-    Path("/usr/share/icons/breeze-dark"),
+    # Path("/usr/share/icons/breeze"),
+    # Path("/usr/local/share/icons/breeze"),
+    Path.home() / ".local/share/icons/kora",
+    # Path("/usr/share/icons/breeze-dark"),
     Path("/usr/share/icons/hicolor"),
 ]
 
@@ -47,7 +65,7 @@ def find_system_theme(custom_path: Path | None = None) -> Path:
         if cand.exists() and (cand / "index.theme").exists():
             return cand
     raise FileNotFoundError(
-        f"Could not find a valid Breeze or freedesktop icon theme on this system. "
+        "Could not find a valid freedesktop icon theme on this system. "
         f"Checked: {[str(p) for p in SEARCH_THEMES]}"
     )
 
@@ -104,7 +122,10 @@ def populate_fallback_theme(
     for rel_dir in sorted_dirs:
         parts = rel_dir.replace("\\", "/").split("/")
         category = parts[0]
-        size_str = parts[1].split("@")[0] if len(parts) > 1 and parts[1].split("@")[0].isdigit() else "22"
+        if len(parts) > 1 and parts[1].split("@")[0].isdigit():
+            size_str = parts[1].split("@")[0]
+        else:
+            size_str = "22"
         size = int(size_str)
 
         lines.append(f"[{rel_dir}]")
@@ -115,7 +136,7 @@ def populate_fallback_theme(
 
     index_theme_path.write_text("\n".join(lines), encoding="utf-8")
 
-    print(f"\n[Icon Populator] Summary:")
+    print("\n[Icon Populator] Summary:")
     print(f"  Icons requested: {len(icon_names)}")
     print(f"  Icons found:     {len(found_icons)} / {len(icon_names)}")
     print(f"  Subdirectories:  {len(sorted_dirs)}")
@@ -142,7 +163,10 @@ def main():
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path(__file__).resolve().parent.parent / "contents" / "icons" / "breeze-fallback",
+        default=Path(__file__).resolve().parent.parent
+        / "contents"
+        / "icons"
+        / "breeze-fallback",
         help="Output directory (default: contents/icons/breeze-fallback).",
     )
     parser.add_argument(
