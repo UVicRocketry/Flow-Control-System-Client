@@ -23,15 +23,20 @@ The UI utilizes KDE's **Kirigami** framework (`org.kde.kirigami`) and Qt Quick C
 
 - **Ubuntu / Debian / WSL**:
   ```sh
-  sudo apt update && sudo apt install -y \
-    python3-pip \
-    libgl1-mesa-dev libxkbcommon-x11-0 libegl1-mesa \
-    libfontconfig1 libdbus-1-3 libxcb-cursor0 \
-    qml6-module-org-kde-kirigami \
-    qml6-module-qtquick-controls \
-    qml6-module-qtquick-layouts \
-    qt6-wayland \
-    gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+  sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libxkbcommon-x11-0 \
+            libfontconfig1 libdbus-1-3 \
+            kf6-kirigami \
+            kf6-qqc2-desktop-style \
+            kf6-kiconthemes \
+            kf6-kcoreaddons \
+            kf6-ki18n \
+            qml6-module-qtquick-controls \
+            qml6-module-qtquick-layouts \
+            qml6-module-qtquick-templates \
+            qml6-module-qtquick-shapes \
+            qml6-module-qtwebsockets \
+            libqt6websockets6-dev
   ```
   
 - **Arch Linux**:
