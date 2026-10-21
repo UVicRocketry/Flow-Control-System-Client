@@ -194,12 +194,22 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download all built artifacts
         uses: actions/download-artifact@v8
         with:
           path: release_artifacts
+      - name: Inspect downloaded artifacts
+        run: ls -R release_artifacts
       - name: Publish Release with Assets
         uses: softprops/action-gh-release@v3
         with:
-          files: ""
+          files: |
+            release_artifacts/**/*.AppImage
+            release_artifacts/**/*.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
