@@ -31,21 +31,26 @@ jobs:
           path: |
             /opt/hostedtoolcache/Python/3.14.*
             ~/.cache/appimagetool
-          key: linux-py311-v2-${{ hashFiles('requirements.txt', 'requirements-build.txt') }}
+          key: linux-py314-v1-${{ hashFiles('requirements.txt', 'requirements-build.txt') }}
 
       - name: Cache KDE Neon APT .deb archives
         uses: actions/cache@v5
         id: apt-cache
         with:
-          path: /var/cache/apt/archives
-          key: linux-apt-neon-kf6-v1
+          path: ~/.cache/apt/archives
+          key: linux-apt-neon-kf6-v2
 
       - name: Add KDE Neon repository & install KF6/Kirigami
         run: |
           sudo rm -f /etc/apt/apt.conf.d/docker-clean
+
+          mkdir -p ~/.cache/apt/archives/partial
+          echo 'Dir::Cache::archives "/home/runner/.cache/apt/archives";' | sudo tee /etc/apt/apt.conf.d/99custom-cache.conf
+
           sudo mkdir -p /etc/apt/keyrings
           curl -fsSL https://archive.neon.kde.org/public.key | sudo gpg --dearmor --yes -o /etc/apt/keyrings/neon-archive-keyring.gpg
           echo "deb [signed-by=/etc/apt/keyrings/neon-archive-keyring.gpg] http://archive.neon.kde.org/user noble main" | sudo tee /etc/apt/sources.list.d/neon.list
+
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgl1-mesa-dev libxkbcommon-x11-0 \
@@ -61,6 +66,9 @@ jobs:
             qml6-module-qtquick-shapes \
             qml6-module-qtwebsockets \
             libqt6websockets6-dev
+
+          sudo chown -R $USER:$USER ~/.cache/apt/archives
+          rm -rf ~/.cache/apt/archives/partial
 
       - name: Install Python dependencies (Skipped on Cache Hit)
         if: steps.linux-py-cache.outputs.cache-hit != 'true'
