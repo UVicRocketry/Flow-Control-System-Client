@@ -123,6 +123,14 @@ QtObject {
 
     }
 
+    function openSelectedLog() {
+        // TODO when moved to topbbar, use existing entered directory to replace quotes
+
+        if (typeof backend !== "undefined" && backend !== null && backend.open_log !== undefined)
+            backend.open_log("");
+
+    }
+
     function showInFileBrowser() {
         if (typeof backend !== "undefined" && backend !== null && backend.show_in_file_browser !== undefined)
             backend.show_in_file_browser(selectedLogName);

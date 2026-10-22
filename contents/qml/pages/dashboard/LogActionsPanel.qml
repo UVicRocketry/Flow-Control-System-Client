@@ -12,9 +12,10 @@ ColumnLayout {
     readonly property bool hasValidSelection: selectedLogName !== "" && !isSelectedMarkedDeleted
 
     signal showInBrowserRequested()
-    signal loadLogRequested()
+    signal openLogRequested()
     signal deleteLogRequested()
     signal undoDeleteRequested()
+    signal downloadLogRequested()
 
     Layout.preferredWidth: implicitWidth
     Layout.maximumWidth: implicitWidth
@@ -45,8 +46,8 @@ ColumnLayout {
         Layout.fillWidth: true
         text: "Load Log from file..."
         icon.name: "document-open"
-        enabled: root.hasValidSelection
-        onClicked: root.loadLogRequested()
+        enabled: root.effectiveLogMode === "local"
+        onClicked: root.openLogRequested()
     }
 
     Controls.Button {
@@ -54,7 +55,7 @@ ColumnLayout {
         text: "Download log..."
         icon.name: "edit-download"
         enabled: root.hasValidSelection && root.effectiveLogMode === "remote"
-        onClicked: root.deleteLogRequested()
+        onClicked: root.downloadLogRequested()
     }
 
     Controls.Button {

@@ -1,3 +1,4 @@
+import QtCore
 import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
@@ -6,6 +7,8 @@ import org.kde.kirigami as Kirigami
 import "pages"
 
 Kirigami.ApplicationWindow {
+    // signal log_sent(var type, var msg)
+
     id: root
 
     // Central WebSocket connection shared by all views and components
@@ -29,6 +32,12 @@ Kirigami.ApplicationWindow {
     title: "Flow Control System"
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.ToolBar
     pageStack.globalToolBar.showNavigationButtons: Kirigami.ApplicationHeaderStyle.NoNavigationButtons
+
+    Settings {
+        id: appSettings
+
+        property string minLogLevel: "INFO"
+    }
 
     WebSocket {
         id: sharedWebSocket
@@ -86,24 +95,45 @@ Kirigami.ApplicationWindow {
             }
         ]
 
-        StackLayout {
-            id: contentStack
-
+        ColumnLayout {
             anchors.fill: parent
-            currentIndex: 0
 
-            // 0
-            Dashboard {
+            StackLayout {
+                id: contentStack
+
+                Layout.fillHeight: true
+                Layout.fillWidth: true
+                currentIndex: 0
+
+                // 0
+                Dashboard {
+                }
+
+                // 1
+                Actuators {
+                }
+
+                // 2
+                Graphs {
+                }
+
             }
 
-            // 1
-            Actuators {
+            LogToaster {
+                id: logToaster
+
+                Layout.fillWidth: true
+                minSeverity: appSettings.minLogLevel
             }
 
-            // 2
-            Graphs {
+        }
+
+        Connections {
+            function onLog_sent(level: string, msg: string) {
+                logToaster.appendLog(level, msg);
             }
 
+            target: backend
         }
 
     }

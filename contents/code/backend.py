@@ -14,7 +14,9 @@ import time
 from pathlib import Path
 
 from PySide6 import QtCore
+from PySide6.QtWidgets import QFileDialog
 from __feature__ import snake_case, true_property
+
 assert snake_case, true_property
 
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -133,10 +135,7 @@ def get_config_dir() -> Path:
             if not dest_file.exists():
                 try:
                     shutil.copy2(src_file, dest_file)
-                    print(
-                        "[CONFIG] Init: ",
-                        f"default user config: {dest_file}"
-                    )
+                    print("[CONFIG] Init: ", f"default user config: {dest_file}")
                 except Exception as err:
                     print(
                         "[CONFIG] Warning: ",
@@ -169,7 +168,7 @@ def ensure_config_file_exists():
                 shutil.copy2(template_file, CONFIG_FILE)
                 print(
                     "[CONFIG] Init: ",
-                    f"config file from {template_file} -> {CONFIG_FILE}"
+                    f"config file from {template_file} -> {CONFIG_FILE}",
                 )
             except Exception as err:
                 print(
@@ -212,12 +211,10 @@ class Backend(QtCore.QObject):
             if is_dev_environment()
             else f"Standalone ({sys.platform})"
         )
-        print(
-            "[CONFIG] Environment: ",
-            f"{env_type} | Config directory: {CONFIG_DIR}"
-        )
+        print("[CONFIG] Environment: ", f"{env_type} | Config directory: {CONFIG_DIR}")
 
         # logs push to UI and stdout
+
     def log_info(self, msg: str):
         self._send_log("INFO", msg)
 
@@ -378,13 +375,14 @@ class Backend(QtCore.QObject):
         try:
             if sys.platform.startswith("linux"):
                 cmd = [
-                    "dbus-send", "--session",
+                    "dbus-send",
+                    "--session",
                     "--dest=org.freedesktop.FileManager1",
                     "--type=method_call",
                     "/org/freedesktop/FileManager1",
                     "org.freedesktop.FileManager1.ShowItems",
                     f"array:string:file://{target_file}",
-                    "string:"
+                    "string:",
                 ]
                 res = subprocess.run(cmd, capture_output=True, timeout=1)
                 if res.returncode == 0:
@@ -409,3 +407,12 @@ class Backend(QtCore.QObject):
 
         except Exception as e:
             self.log_warn(f"Failed to open log file location: {e}")
+
+    @QtCore.Slot(str)
+    def open_log(self, open_where: str = "") -> str:
+        open_dir = open_where if not open_where else Path.home()
+
+        file = QFileDialog.get_open_file_name(None, "Open log", f"{open_dir}", ".csv")
+
+        self.log_info(f'User opened log "{file[0]}"')
+        return file[0]

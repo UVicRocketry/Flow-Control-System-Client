@@ -94,6 +94,7 @@ ColumnLayout {
                 Layout.fillHeight: true
 
                 // pass functions to helper
+                // for anything in the log viewing panel itself
                 LogListPanel {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -128,6 +129,7 @@ ColumnLayout {
                 }
 
                 // pass functions to helper
+                // for anything in the actions panel to the side
                 LogActionsPanel {
                     selectedLogName: fn.selectedLogName
                     effectiveLogMode: fn.effectiveLogMode
@@ -137,7 +139,8 @@ ColumnLayout {
                             backend.show_in_file_browser(fn.selectedLogName);
 
                     }
-                    onLoadLogRequested: fn.loadSelectedLog()
+                    // onLoadLogRequested: fn.loadSelectedLog()
+                    onOpenLogRequested: fn.openSelectedLog()
                     onDeleteLogRequested: {
                         fn.targetActionLog = fn.selectedLogName;
                         logDialogs.openDeleteConfirm();

@@ -15,6 +15,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWidgets import QApplication, QMessageBox
 from __feature__ import snake_case, true_property
+
 assert snake_case, true_property
 
 # Ensure clean imports from local code directory
@@ -26,7 +27,7 @@ IS_FROZEN = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
 
 def get_resource_dir() -> Path:
     """Returns directory containing qml and assets,
-       handling PyInstaller sys._MEIPASS."""
+    handling PyInstaller sys._MEIPASS."""
     if IS_FROZEN:
         bundle_path = Path(sys._MEIPASS)
         return (
@@ -49,6 +50,7 @@ def close_pyinstaller_splash() -> None:
     """Closes the PyInstaller bootloader splash if present."""
     try:
         import pyi_splash
+
         if pyi_splash.is_alive():
             pyi_splash.close()
     except (ImportError, AttributeError):
@@ -63,8 +65,7 @@ def configure_icon_themes(contents_dir: Path) -> None:
             "/usr/share/icons",
             "/usr/local/share/icons",
         ]
-        QIcon.set_theme_search_paths(
-            host_icon_dirs + QIcon.theme_search_paths())
+        QIcon.set_theme_search_paths(host_icon_dirs + QIcon.theme_search_paths())
 
     # Append bundled icons at the END of the search paths as a fallback
     bundled_icons = contents_dir / "icons"
@@ -72,8 +73,7 @@ def configure_icon_themes(contents_dir: Path) -> None:
         bundled_icons = Path(sys._MEIPASS) / "icons"
 
     if bundled_icons.exists():
-        QIcon.set_theme_search_paths(
-            QIcon.theme_search_paths() + [str(bundled_icons)])
+        QIcon.set_theme_search_paths(QIcon.theme_search_paths() + [str(bundled_icons)])
         QIcon.set_fallback_theme_name("breeze-fallback")
     else:
         QIcon.set_fallback_theme_name("breeze")
@@ -100,9 +100,7 @@ def add_dev_qml_paths(engine: QQmlApplicationEngine) -> None:
                 engine.add_import_path(str(craft_root / qml_sub))
 
 
-def configure_qml_paths(
-    engine: QQmlApplicationEngine, contents_dir: Path
-) -> None:
+def configure_qml_paths(engine: QQmlApplicationEngine, contents_dir: Path) -> None:
     """Configures QML module import paths for frozen and dev environments."""
     engine.add_import_path(str(contents_dir))
     engine.add_import_path(str(contents_dir / "qml"))
@@ -124,16 +122,11 @@ def resolve_qml_entry(contents_dir: Path) -> Path:
     return qml_file
 
 
-def handle_startup_error(
-    engine: QQmlApplicationEngine, qml_errors: list[str]
-) -> None:
+def handle_startup_error(engine: QQmlApplicationEngine, qml_errors: list[str]) -> None:
     """Logs diagnostic details, shows a critical alert, and exits."""
-    detailed_err = (
-        "\n".join(qml_errors) if qml_errors else "Unknown QML loading error."
-    )
+    detailed_err = "\n".join(qml_errors) if qml_errors else "Unknown QML loading error."
     full_msg = (
-        "[ERROR] Failed to load QML root objects.\n\n"
-        f"QML Diagnostics:\n{detailed_err}"
+        f"[ERROR] Failed to load QML root objects.\n\nQML Diagnostics:\n{detailed_err}"
     )
     print(full_msg, file=sys.stderr)
 
@@ -175,6 +168,10 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    QApplication.organization_domain = "com.uvr"
+    QApplication.organization_name = "Uvic Rocketry"
+    QApplication.application_name = "fcs-client"
 
     contents_dir = get_resource_dir()
     icon_path = resolve_app_icon(contents_dir)
