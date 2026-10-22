@@ -12,6 +12,7 @@ ColumnLayout {
 
     spacing: Kirigami.Units.largeSpacing
     Component.onDestruction: fn.commitPendingDeletions()
+    Layout.fillHeight: true
 
     // helper functions
     DashboardFunctions {
@@ -47,6 +48,8 @@ ColumnLayout {
             }
 
             Websocket {
+                id: ws
+
                 Layout.fillWidth: true
                 compact: false
             }
@@ -61,6 +64,7 @@ ColumnLayout {
         Layout.preferredHeight: Kirigami.Units.gridUnit * 24
         Layout.minimumHeight: Kirigami.Units.gridUnit * 24
         Layout.fillHeight: true
+        Layout.bottomMargin: -1 * Kirigami.Units.gridUnit / 2
 
         header: DashboardHeader {
             dataSourceMode: fn.dataSourceMode
@@ -164,9 +168,7 @@ ColumnLayout {
                         text: "Connect"
                         icon.name: "network-connect"
                         onTriggered: {
-                            if (typeof backend !== "undefined" && backend !== null && backend.connect !== undefined)
-                                backend.connect();
-
+                            ws.connectSocket();
                         }
                     },
                     Kirigami.Action {

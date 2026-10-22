@@ -60,6 +60,7 @@ Item {
     signal jsonReceived(var data)
 
     // Methods
+    // main websocket connector - can pass either a new URL or leave blank to use current
     function connectSocket(targetUrl) {
         if (!socket)
             return ;
