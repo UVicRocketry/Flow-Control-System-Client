@@ -27,14 +27,13 @@ Kirigami.ApplicationWindow {
     minimumHeight: Kirigami.Units.gridUnit * 34
     minimumWidth: Kirigami.Units.gridUnit * 45
     title: "Flow Control System"
-    // only use one main page to keep toolbar consistent
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.ToolBar
     pageStack.globalToolBar.showNavigationButtons: Kirigami.ApplicationHeaderStyle.NoNavigationButtons
 
     WebSocket {
         id: sharedWebSocket
 
-        url: backend ? backend.serverUrl : "ws://127.0.0.1:8080/ws"
+        url: backend ? backend.server_url : "ws://127.0.0.1:8080/ws"
         active: false
         onTextMessageReceived: function(message) {
             try {
@@ -46,6 +45,7 @@ Kirigami.ApplicationWindow {
     }
 
     // Set the first page that will be loaded when the app opens
+    // only use one main page to keep toolbar consistent
     pageStack.initialPage: Kirigami.Page {
         title: "Controls"
         actions: [
@@ -57,10 +57,10 @@ Kirigami.ApplicationWindow {
                     }
 
                     Controls.CheckBox {
-                        checked: backend ? backend.autoReconnect : false
+                        checked: backend ? backend.auto_reconnect : false
                         onToggled: {
                             if (backend)
-                                backend.autoReconnect = checked;
+                                backend.auto_reconnect = checked;
 
                             if (checked) {
                                 root.userDisconnected = false;

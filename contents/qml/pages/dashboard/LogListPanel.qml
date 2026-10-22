@@ -149,6 +149,7 @@ ColumnLayout {
                             onClicked: root.undoDeleteRequested(logDelegate.modelData)
                         }
 
+                        // control buttons
                         RowLayout {
                             // Show on hover OR when the item is highlighted/selected so touch/click works on Windows
                             visible: !logDelegate.markedDeleted && (logDelegate.hovered || logDelegate.highlighted)

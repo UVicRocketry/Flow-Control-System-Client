@@ -9,6 +9,8 @@ import sys
 import os
 import json
 import shutil
+import subprocess
+import time
 from pathlib import Path
 
 from PySide6 import QtCore
@@ -192,17 +194,13 @@ class Backend(QtCore.QObject):
     exposes configuration properties and settings
     """
 
-    configChanged = QtCore.Signal()
-    serverUrlChanged = QtCore.Signal(str)
-    autoReconnectChanged = QtCore.Signal(bool)
-    reconnectIntervalMsChanged = QtCore.Signal(int)
-    connectRequested = QtCore.Signal()
-
-    config_changed = configChanged
-    server_url_changed = serverUrlChanged
-    auto_reconnect_changed = autoReconnectChanged
-    reconnect_interval_ms_changed = reconnectIntervalMsChanged
-    connect_requested = connectRequested
+    # Signals
+    config_changed = QtCore.Signal()
+    server_url_changed = QtCore.Signal(str)
+    auto_reconnect_changed = QtCore.Signal(bool)
+    reconnect_interval_ms_changed = QtCore.Signal(int)
+    connect_requested = QtCore.Signal()
+    log_sent = QtCore.Signal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -218,6 +216,22 @@ class Backend(QtCore.QObject):
             "[CONFIG] Environment: ",
             f"{env_type} | Config directory: {CONFIG_DIR}"
         )
+
+        # logs push to UI and stdout
+    def log_info(self, msg: str):
+        self._send_log("INFO", msg)
+
+    def log_warn(self, msg: str):
+        self._send_log("WARN", msg)
+
+    def log_error(self, msg: str):
+        self._send_log("ERR", msg, sys.sdterr)
+
+    def _send_log(self, level: str, msg: str, file=sys.stdout):
+        t_str = time.strftime("%H:%M:%S")
+        entry = f"[{t_str}] [{level}] {msg}"
+        print(f"[FLOW-CTRL] {entry}", flush=True, file=file)
+        self.log_sent.emit(level, msg)
 
     @QtCore.Property(str, notify=config_changed)
     def config_dir(self) -> str:
@@ -276,31 +290,6 @@ class Backend(QtCore.QObject):
             self.save_config(self._config_data)
             self.reconnect_interval_ms_changed.emit(interval)
 
-    # Compatibility camelCase property aliases
-    @QtCore.Property(str, notify=server_url_changed)
-    def serverUrl(self) -> str:
-        return self.server_url
-
-    @serverUrl.setter
-    def serverUrl(self, url: str):
-        self.server_url = url
-
-    @QtCore.Property(bool, notify=auto_reconnect_changed)
-    def autoReconnect(self) -> bool:
-        return self.auto_reconnect
-
-    @autoReconnect.setter
-    def autoReconnect(self, enabled: bool):
-        self.auto_reconnect = enabled
-
-    @QtCore.Property(int, notify=reconnect_interval_ms_changed)
-    def reconnectIntervalMs(self) -> int:
-        return self.reconnect_interval_ms
-
-    @reconnectIntervalMs.setter
-    def reconnectIntervalMs(self, interval: int):
-        self.reconnect_interval_ms = interval
-
     @QtCore.Slot(result="QVariantMap")
     def load_config(self) -> dict:
         """Loads configuration from CONFIG_FILE"""
@@ -314,18 +303,10 @@ class Backend(QtCore.QObject):
                 with open(target_path, "r", encoding="utf-8") as f:
                     self._config_data = json.load(f)
             except Exception as err:
-                print(
-                    "[CONFIG] Error: ",
-                    f"reading {target_path}: {err}.",
-                    file=sys.stderr
-                )
+                self.log_error(f"Error reading {target_path}: {err}.")
                 self._config_data = {}
         else:
-            print(
-                "[CONFIG] Error: ",
-                f"No configuration file found at {target_path}.",
-                file=sys.stderr
-            )
+            self.log_error(f"No configuration file found at {target_path}.")
             self._config_data = {}
 
         ensure_config_file_exists()
@@ -353,12 +334,9 @@ class Backend(QtCore.QObject):
             self._config_data = data
             self.config_changed.emit()
             return True
+
         except Exception as err:
-            print(
-                "[CONFIG] Error: ",
-                f"saving config to {CONFIG_FILE}: {err}",
-                file=sys.stderr
-            )
+            self.log_error(f"Couldnt save config to {CONFIG_FILE}: {err}")
             return False
 
     @QtCore.Slot(str, result="QVariant")
@@ -383,28 +361,51 @@ class Backend(QtCore.QObject):
     def set_reconnect_interval_ms(self, interval: int):
         self.reconnect_interval_ms = interval
 
-    @QtCore.Slot(str)
-    def setServerUrl(self, url: str):
-        self.set_server_url(url)
-
-    @QtCore.Slot(bool)
-    def setAutoReconnect(self, enabled: bool):
-        self.set_auto_reconnect(enabled)
-
-    @QtCore.Slot(int)
-    def setReconnectIntervalMs(self, interval: int):
-        self.set_reconnect_interval_ms(interval)
-
     @QtCore.Slot()
     def connect_to_server(self):
         """Signals QML/listeners to initiate WebSocket connection."""
         self.connect_requested.emit()
 
     @QtCore.Slot()
-    def connectToServer(self):
-        self.connect_to_server()
-
-    @QtCore.Slot()
     def connect(self):
         """Connection entrypoint called on startup."""
         self.connect_to_server()
+
+    @QtCore.Slot(str)
+    def show_in_file_browser(self, url: str):
+        target_file = Path(url).resolve()
+        target_dir = target_file.parent
+        try:
+            if sys.platform.startswith("linux"):
+                cmd = [
+                    "dbus-send", "--session",
+                    "--dest=org.freedesktop.FileManager1",
+                    "--type=method_call",
+                    "/org/freedesktop/FileManager1",
+                    "org.freedesktop.FileManager1.ShowItems",
+                    f"array:string:file://{target_file}",
+                    "string:"
+                ]
+                res = subprocess.run(cmd, capture_output=True, timeout=1)
+                if res.returncode == 0:
+                    self.log_info(f"Showing in file manager: {target_file.name}")
+                    return
+
+                # Fallback to xdg-open on directory
+                if shutil.which("xdg-open"):
+                    subprocess.Popen(["xdg-open", str(target_dir)])
+                    self.log_info(f"Showing in log folder: {target_dir}")
+                    return
+
+            elif sys.platform == "win32":  # windows
+                subprocess.Popen(f'explorer /select,"{target_file}"')
+                self.log_info(f"Showing file in Explorer: {target_file.name}")
+                return
+
+            elif sys.platform == "darwin":  # macos
+                subprocess.Popen(["open", "-R", str(target_file)])
+                self.log_info(f"Showing file in Finder: {target_file.name}")
+                return
+
+        except Exception as e:
+            self.log_warn(f"Failed to open log file location: {e}")

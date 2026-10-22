@@ -13,19 +13,10 @@ QtObject {
     })
     property var renamedLogsMap: ({
     })
-    // Detect whether the backend WebSocket is currently connected
+    // Detect whether the WebSocket (ws) is currently connected
     readonly property bool isWebsocketConnected: {
-        if (typeof backend === "undefined" || backend === null)
-            return false;
-
-        if (backend.connected !== undefined)
-            return Boolean(backend.connected);
-
-        if (backend.is_connected !== undefined)
-            return Boolean(backend.is_connected);
-
-        if (backend.isConnected !== undefined)
-            return Boolean(backend.isConnected);
+        if (ws.isConnected !== undefined)
+            return Boolean(ws.isConnected);
 
         return false;
     }

@@ -17,7 +17,7 @@ Item {
     readonly property string errorString: socket ? socket.errorString : ""
     // Server URL
     property string currentUrl: {
-        socket && socket.url && socket.url.toString().length > 0 ? socket.url.toString() : (backend ? backend.serverUrl : "ws://127.0.0.1:8080/ws");
+        socket && socket.url && socket.url.toString().length > 0 ? socket.url.toString() : (backend ? backend.server_url : "ws://127.0.0.1:8080/ws");
     }
     readonly property color statusColor: {
         if (isConnected)
@@ -107,7 +107,7 @@ Item {
     }
 
     Component.onCompleted: {
-        if (compact && backend && backend.autoReconnect && socket && !socket.active) {
+        if (compact && backend && backend.auto_reconnect && socket && !socket.active) {
             console.log("[WS] Auto-connecting to " + socket.url);
             socket.active = true;
         }
@@ -119,13 +119,13 @@ Item {
     Timer {
         id: autoReconnectTimer
 
-        interval: backend ? backend.reconnectIntervalMs : 2000
+        interval: backend ? backend.reconnect_interval_ms : 2000
         repeat: true
         running: {
             if (!compact)
                 return false;
 
-            if (!backend || !backend.autoReconnect || (typeof root !== "undefined" && root && root.userDisconnected))
+            if (!backend || !backend.auto_reconnect || (typeof root !== "undefined" && root && root.userDisconnected))
                 return false;
 
             return socket && socket.status !== WebSocket.Open && socket.status !== WebSocket.Connecting;
@@ -138,8 +138,8 @@ Item {
     }
 
     Connections {
-        function onConnectRequested() {
-            if (compact && backend && backend.autoReconnect && socket && !socket.active) {
+        function on_connect_requested() {
+            if (compact && backend && backend.auto_reconnect && socket && !socket.active) {
                 console.log("[WS] connectRequested: activating WebSocket");
                 socket.active = true;
             }
