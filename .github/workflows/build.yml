@@ -37,15 +37,17 @@ jobs:
         uses: actions/cache@v5
         id: apt-cache
         with:
-          path: ~/.cache/apt/archives
-          key: linux-apt-neon-kf6-v2
+          path: /tmp/apt-cache
+          key: linux-apt-neon-kf6-v3
 
       - name: Add KDE Neon repository & install KF6/Kirigami
         run: |
           sudo rm -f /etc/apt/apt.conf.d/docker-clean
 
-          mkdir -p ~/.cache/apt/archives/partial
-          echo 'Dir::Cache::archives "/home/runner/.cache/apt/archives";' | sudo tee /etc/apt/apt.conf.d/99custom-cache.conf
+          mkdir -p /tmp/apt-cache/partial
+          sudo chown -R _apt:root /tmp/apt-cache/partial
+          sudo chmod 700 /tmp/apt-cache/partial
+          echo 'Dir::Cache::archives "/tmp/apt-cache";' | sudo tee /etc/apt/apt.conf.d/99custom-cache.conf
 
           sudo mkdir -p /etc/apt/keyrings
           curl -fsSL https://archive.neon.kde.org/public.key | sudo gpg --dearmor --yes -o /etc/apt/keyrings/neon-archive-keyring.gpg
@@ -67,8 +69,8 @@ jobs:
             qml6-module-qtwebsockets \
             libqt6websockets6-dev
 
-          sudo chown -R $USER:$USER ~/.cache/apt/archives
-          rm -rf ~/.cache/apt/archives/partial
+          sudo rm -rf /tmp/apt-cache/partial /tmp/apt-cache/lock
+          sudo chown -R $USER:$USER /tmp/apt-cache
 
       - name: Install Python dependencies (Skipped on Cache Hit)
         if: steps.linux-py-cache.outputs.cache-hit != 'true'
