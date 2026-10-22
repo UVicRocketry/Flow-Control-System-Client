@@ -7,8 +7,6 @@ import org.kde.kirigami as Kirigami
 import "pages"
 
 Kirigami.ApplicationWindow {
-    // signal log_sent(var type, var msg)
-
     id: root
 
     // Central WebSocket connection shared by all views and components
@@ -95,14 +93,13 @@ Kirigami.ApplicationWindow {
             }
         ]
 
-        ColumnLayout {
+        Item {
             anchors.fill: parent
 
             StackLayout {
                 id: contentStack
 
-                Layout.fillHeight: true
-                Layout.fillWidth: true
+                anchors.fill: parent
                 currentIndex: 0
 
                 // 0
@@ -119,18 +116,70 @@ Kirigami.ApplicationWindow {
 
             }
 
+            // Overlay toast container anchored at bottom-right, floating over page content
             LogToaster {
                 id: logToaster
 
-                Layout.fillWidth: true
+                objectName: "logToaster"
+                anchors.bottom: parent.bottom
+                anchors.right: parent.right
+                anchors.margins: Kirigami.Units.gridUnit
+                width: Math.min(parent.width - (Kirigami.Units.gridUnit * 2), Kirigami.Units.gridUnit * 22)
+                z: 999
                 minSeverity: appSettings.minLogLevel
             }
 
         }
 
+        ListModel {
+            id: notificationModel
+
+            property int unreadCount: 0
+
+            objectName: "notificationModel"
+        }
+
+        NotificationTray {
+            id: notificationTray
+
+            objectName: "notificationTray"
+            notificationModel: notificationModel
+            onClearRequested: {
+                notificationModel.clear();
+                notificationModel.unreadCount = 0;
+            }
+            onVisibleChanged: {
+                if (visible)
+                    notificationModel.unreadCount = 0;
+
+            }
+        }
+
+        Kirigami.PromptDialog {
+            id: settingsDialog
+
+            title: "Settings"
+            subtitle: "Application configuration and settings will be available here."
+            standardButtons: Kirigami.Dialog.Close
+        }
+
         Connections {
             function onLog_sent(level: string, msg: string) {
-                logToaster.appendLog(level, msg);
+                let now = new Date();
+                let h = String(now.getHours()).padStart(2, "0");
+                let m = String(now.getMinutes()).padStart(2, "0");
+                let s = String(now.getSeconds()).padStart(2, "0");
+                let timeStr = h + ":" + m + ":" + s;
+                // 1. Record in notification tray model
+                notificationModel.insert(0, {
+                    "level": level,
+                    "message": msg,
+                    "timestamp": timeStr,
+                    "read": false
+                });
+                notificationModel.unreadCount++;
+                // 2. Display overlay toast
+                logToaster.showToast(level, msg);
             }
 
             target: backend
@@ -153,7 +202,9 @@ Kirigami.ApplicationWindow {
             id: sidebarNav
 
             Layout.fillWidth: true
+            Layout.fillHeight: true
             Layout.margins: Kirigami.Units.gridUnit / 4
+            unreadNotificationCount: notificationModel.unreadCount
             onNavigateRequested: function(pageName) {
                 if (pageName === "dashboard")
                     contentStack.currentIndex = 0;
@@ -161,6 +212,13 @@ Kirigami.ApplicationWindow {
                     contentStack.currentIndex = 1;
                 else if (pageName === "graphs")
                     contentStack.currentIndex = 2;
+            }
+            onSettingsRequested: {
+                settingsDialog.open();
+            }
+            onNotificationsRequested: {
+                notificationTray.open();
+                notificationModel.unreadCount = 0;
             }
         }
 

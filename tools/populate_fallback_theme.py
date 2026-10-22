@@ -47,6 +47,7 @@ DEFAULT_ICONS = [
     "edit-download",
     "search",
     "search-symbolic",
+    "notifications"
 ]
 
 SEARCH_THEMES = [

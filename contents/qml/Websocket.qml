@@ -10,6 +10,9 @@ Item {
     // Switch between full single-row UI and topbar compact indicator mode
     property bool compact: false
     readonly property WebSocket socket: root.webSocket
+    // Track previous state so we don't spam identical auto-reconnect errors every 2s
+    property bool _wasConnected: false
+    property string _lastLoggedError: ""
     // Connection state convenience properties
     readonly property bool isConnected: socket ? (socket.status === WebSocket.Open) : false
     readonly property bool isConnecting: socket ? (socket.status === WebSocket.Connecting) : false
@@ -68,6 +71,8 @@ Item {
         if (typeof root !== "undefined" && root && root.hasOwnProperty("userDisconnected"))
             root.userDisconnected = false;
 
+        // Reset error deduplication when user manually initiates a connection
+        wsRoot._lastLoggedError = "";
         var urlToUse = (targetUrl && targetUrl.trim().length > 0) ? targetUrl.trim() : wsRoot.currentUrl;
         urlToUse = urlToUse.trim();
         wsRoot.currentUrl = urlToUse;
@@ -108,7 +113,7 @@ Item {
 
     Component.onCompleted: {
         if (compact && backend && backend.auto_reconnect && socket && !socket.active) {
-            console.log("[WS] Auto-connecting to " + socket.url);
+            backend.info("Auto-connecting to WebSocket at " + socket.url);
             socket.active = true;
         }
     }
@@ -140,7 +145,7 @@ Item {
     Connections {
         function onConnect_requested() {
             if (compact && backend && backend.auto_reconnect && socket && !socket.active) {
-                console.log("[WS] connectRequested: activating WebSocket");
+                backend.info("Activating WebSocket connection to " + socket.url);
                 socket.active = true;
             }
         }
@@ -150,24 +155,43 @@ Item {
 
     Connections {
         function onStatusChanged(status) {
+            // Only log from the single compact toolbar instance so events aren't duplicated
             if (!compact)
                 return ;
 
-            if (status === WebSocket.Open)
-                console.log("[WS] WebSocket Connected to " + wsRoot.socket.url);
-            else if (status === WebSocket.Error)
-                console.log("[WS] WebSocket Error: " + wsRoot.socket.errorString);
-            else if (status === WebSocket.Closed)
-                console.log("[WS] WebSocket Disconnected.");
+            if (status === WebSocket.Open) {
+                wsRoot._wasConnected = true;
+                wsRoot._lastLoggedError = "";
+                backend.info("WebSocket connected to " + wsRoot.socket.url);
+            } else if (status === WebSocket.Error) {
+                let errDetail = wsRoot.socket.errorString && wsRoot.socket.errorString.length > 0 ? wsRoot.socket.errorString : "Connection failed";
+                let fullErr = "(" + wsRoot.socket.url + "): " + errDetail;
+                // Avoid flooding the global log if auto-reconnect is retrying the same dead endpoint
+                if (fullErr !== wsRoot._lastLoggedError) {
+                    wsRoot._lastLoggedError = fullErr;
+                    backend.err(fullErr);
+                }
+            } else if (status === WebSocket.Closed) {
+                if (wsRoot._wasConnected) {
+                    wsRoot._wasConnected = false;
+                    if (typeof root !== "undefined" && root && root.userDisconnected)
+                        backend.info("WebSocket disconnected from " + wsRoot.socket.url);
+                    else
+                        backend.warn("WebSocket connection closed (" + wsRoot.socket.url + ")");
+                }
+            }
         }
 
         function onTextMessageReceived(message) {
+            if (!compact)
+                return ;
+
             wsRoot.messageReceived(message);
             try {
                 let data = JSON.parse(message);
                 wsRoot.jsonReceived(data);
             } catch (e) {
-                console.log("[WS] Received non-JSON message: " + message);
+                backend.warn("Received malformed non-JSON WebSocket payload: " + message);
             }
         }
 

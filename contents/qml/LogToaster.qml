@@ -1,13 +1,15 @@
 import QtQuick
-import QtQuick.Controls as Controls
-import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
-ColumnLayout {
+Column {
     id: root
 
-    // bound to settings/config key ("INFO", "WARN", or "ERR")
+    // Bound to settings/config key ("INFO", "WARN", or "ERR")
     property string minSeverity: "INFO"
+    property int defaultDurationMs: 5000
+    property int warnDurationMs: 6000
+    property int maxVisibleToasts: 5
+    property int _nextId: 0
 
     function severityRank(level) {
         const ranks = {
@@ -18,58 +20,75 @@ ColumnLayout {
         return ranks[level] !== undefined ? ranks[level] : 0;
     }
 
-    function kirigamiMessageType(level) {
-        switch (level) {
-        case "WARN":
-            return Kirigami.MessageType.Warning;
-        case "ERR":
-            return Kirigami.MessageType.Error;
-        case "INFO":
-        default:
-            return Kirigami.MessageType.Information;
+    function showToast(level, messageText) {
+        if (severityRank(level) < severityRank(minSeverity))
+            return ;
+
+        // Enforce maximum visible toast cap: evict the oldest non-ERR toast first
+        while (toastModel.count >= maxVisibleToasts) {
+            let evictIdx = 0;
+            for (let i = 0; i < toastModel.count; i++) {
+                if (toastModel.get(i).level !== "ERR") {
+                    evictIdx = i;
+                    break;
+                }
+            }
+            toastModel.remove(evictIdx);
         }
+        toastModel.append({
+            "toastId": ++_nextId,
+            "level": level,
+            "message": messageText,
+            "totalMs": level === "ERR" ? 0 : (level === "WARN" ? warnDurationMs : defaultDurationMs)
+        });
     }
 
     function appendLog(level, messageText) {
-        logModel.append({
-            "level": level,
-            "message": messageText
-        });
+        showToast(level, messageText);
+    }
+
+    function removeToast(id) {
+        for (let i = 0; i < toastModel.count; i++) {
+            if (toastModel.get(i).toastId === id) {
+                toastModel.remove(i);
+                break;
+            }
+        }
     }
 
     spacing: Kirigami.Units.smallSpacing
 
     ListModel {
-        id: logModel
+        id: toastModel
     }
 
     Repeater {
-        model: logModel
+        model: toastModel
 
-        delegate: Kirigami.InlineMessage {
-            id: inlineMsg
+        delegate: NotificationToast {
+            id: toastDelegate
 
-            required property string level
-            required property string message
-            required property int index
+            // Use `required property var model` to avoid shadowing `level` and `totalMs` on NotificationToast
+            required property var model
 
-            Layout.fillWidth: true
-            text: message
-            type: root.kirigamiMessageType(level)
-            // Dynamically show/hide based on the active config threshold
-            visible: root.severityRank(level) >= root.severityRank(root.minSeverity)
-            // Remove from model when closed by the user
-            onVisibleChanged: {
-                if (!visible && root.severityRank(level) >= root.severityRank(root.minSeverity))
-                    logModel.remove(index);
+            width: root.width
+            text: model.message
+            level: model.level
+            totalMs: model.totalMs
+            timed: model.level !== "ERR" && model.totalMs > 0
+            animateEntryExit: true
+            onDismissed: root.removeToast(model.toastId)
+            onTimeout: root.removeToast(model.toastId)
+        }
 
-            }
+    }
 
-            actions: Kirigami.Action {
-                icon.name: "window-close"
-                onTriggered: inlineMsg.visible = false
-            }
-
+    // Smoothly slide remaining toasts up/down when a toast is added or removed
+    move: Transition {
+        NumberAnimation {
+            properties: "y"
+            duration: Kirigami.Units.longDuration
+            easing.type: Easing.OutCubic
         }
 
     }

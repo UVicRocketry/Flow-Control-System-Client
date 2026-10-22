@@ -228,13 +228,32 @@ class Backend(QtCore.QObject):
         self._send_log("WARN", msg)
 
     def log_error(self, msg: str):
-        self._send_log("ERR", msg, sys.sdterr)
+        self._send_log("ERR", msg, sys.stderr)
 
     def _send_log(self, level: str, msg: str, file=sys.stdout):
         t_str = time.strftime("%H:%M:%S")
         entry = f"[{t_str}] [{level}] {msg}"
         print(f"[FLOW-CTRL] {entry}", flush=True, file=file)
         self.log_sent.emit(level, msg)
+
+    @QtCore.Slot(str, str)
+    def log(self, level: str, msg: str):
+        """Logger for QML"""
+        lvl = level.upper()
+        out_stream = sys.stderr if lvl == "ERR" else sys.stdout
+        self._send_log(lvl, msg, file=out_stream)
+
+    @QtCore.Slot(str)
+    def info(self, msg: str):
+        self.log_info(msg)
+
+    @QtCore.Slot(str)
+    def warn(self, msg: str):
+        self.log_warn(msg)
+
+    @QtCore.Slot(str)
+    def err(self, msg: str):
+        self.log_error(msg)
 
     @QtCore.Property(str, notify=config_changed)
     def config_dir(self) -> str:

@@ -65,7 +65,9 @@ def configure_icon_themes(contents_dir: Path) -> None:
             "/usr/share/icons",
             "/usr/local/share/icons",
         ]
-        QIcon.set_theme_search_paths(host_icon_dirs + QIcon.theme_search_paths())
+        QIcon.set_theme_search_paths(
+            host_icon_dirs + QIcon.theme_search_paths()
+        )
 
     # Append bundled icons at the END of the search paths as a fallback
     bundled_icons = contents_dir / "icons"
@@ -73,7 +75,9 @@ def configure_icon_themes(contents_dir: Path) -> None:
         bundled_icons = Path(sys._MEIPASS) / "icons"
 
     if bundled_icons.exists():
-        QIcon.set_theme_search_paths(QIcon.theme_search_paths() + [str(bundled_icons)])
+        QIcon.set_theme_search_paths(
+            QIcon.theme_search_paths() + [str(bundled_icons)]
+        )
         QIcon.set_fallback_theme_name("breeze-fallback")
     else:
         QIcon.set_fallback_theme_name("breeze")
@@ -100,7 +104,9 @@ def add_dev_qml_paths(engine: QQmlApplicationEngine) -> None:
                 engine.add_import_path(str(craft_root / qml_sub))
 
 
-def configure_qml_paths(engine: QQmlApplicationEngine, contents_dir: Path) -> None:
+def configure_qml_paths(
+    engine: QQmlApplicationEngine, contents_dir: Path
+) -> None:
     """Configures QML module import paths for frozen and dev environments."""
     engine.add_import_path(str(contents_dir))
     engine.add_import_path(str(contents_dir / "qml"))
@@ -122,7 +128,9 @@ def resolve_qml_entry(contents_dir: Path) -> Path:
     return qml_file
 
 
-def handle_startup_error(engine: QQmlApplicationEngine, qml_errors: list[str]) -> None:
+def handle_startup_error(
+    engine: QQmlApplicationEngine, qml_errors: list[str]
+) -> None:
     """Logs diagnostic details, shows a critical alert, and exits."""
     detailed_err = "\n".join(qml_errors) if qml_errors else "Unknown QML loading error."
     full_msg = (
