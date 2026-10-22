@@ -7,7 +7,7 @@ ColumnLayout {
     id: root
 
     required property string dataSourceMode
-    required property string selectedLogName
+    required property string selectedDataName
 
     signal modeSelected(string mode)
 
@@ -31,7 +31,7 @@ ColumnLayout {
             }
 
             Controls.Label {
-                text: root.dataSourceMode === "live" ? "Viewing live telemetry. Actuation panels are accessible from the left sidebar navigation." : (root.selectedLogName !== "" ? "Viewing log:\n" + root.selectedLogName : "Select a log file below and click 'Load Log' to inspect recorded telemetry.")
+                text: root.dataSourceMode === "live" ? "Viewing live telemetry. Actuation panels are accessible from the left sidebar navigation." : (root.selectedDataName !== "" ? "Viewing data:\n" + root.selectedDataName : "Select a data file below and click 'Load Data' to inspect recorded telemetry.")
                 color: Kirigami.Theme.disabledTextColor
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
@@ -49,13 +49,13 @@ ColumnLayout {
                     onTriggered: root.modeSelected("live")
                 },
                 Kirigami.Action {
-                    text: "Local logs"
+                    text: "Local data"
                     icon.name: "folder"
                     checked: root.dataSourceMode === "local"
                     onTriggered: root.modeSelected("local")
                 },
                 Kirigami.Action {
-                    text: "Remote logs"
+                    text: "Remote data"
                     icon.name: "network-wired"
                     checked: root.dataSourceMode === "remote"
                     onTriggered: root.modeSelected("remote")

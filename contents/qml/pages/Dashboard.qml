@@ -68,12 +68,12 @@ ColumnLayout {
 
         header: DashboardHeader {
             dataSourceMode: fn.dataSourceMode
-            selectedLogName: fn.selectedLogName
+            selectedDataName: fn.selectedDataName
             onModeSelected: function(mode) {
                 if (mode !== "live") {
                     fn.lastHistoryMode = mode;
-                    fn.selectedLogName = "";
-                    fn.refreshLogs(mode);
+                    fn.selectedDataName = "";
+                    fn.refreshData(mode);
                 }
                 fn.dataSourceMode = mode;
             }
@@ -85,7 +85,7 @@ ColumnLayout {
             Layout.margins: Kirigami.Units.gridUnit / 2
 
             RowLayout {
-                id: logBrowserContent
+                id: dataBrowserContent
 
                 enabled: fn.dataSourceMode !== "live"
                 opacity: enabled ? 1 : 0.42
@@ -94,33 +94,33 @@ ColumnLayout {
                 Layout.fillHeight: true
 
                 // pass functions to helper
-                // for anything in the log viewing panel itself
-                LogListPanel {
+                // for anything in the data viewing panel itself
+                DataListPanel {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    effectiveLogMode: fn.effectiveLogMode
+                    effectiveDataMode: fn.effectiveDataMode
                     isWebsocketConnected: fn.isWebsocketConnected
-                    activeLogList: fn.activeLogList
-                    selectedLogName: fn.selectedLogName
+                    activeDataList: fn.activeDataList
+                    selectedDataName: fn.selectedDataName
                     pendingDeleteMap: fn.pendingDeleteMap
-                    onLogSelected: function(name) {
-                        fn.selectedLogName = name;
+                    onDataSelected: function(name) {
+                        fn.selectedDataName = name;
                     }
-                    onLogDoubleClicked: function(name) {
-                        fn.selectedLogName = name;
-                        fn.loadSelectedLog();
+                    onDataDoubleClicked: function(name) {
+                        fn.selectedDataName = name;
+                        fn.loadSelectedData();
                     }
-                    onRefreshRequested: fn.refreshLogs(fn.effectiveLogMode)
+                    onRefreshRequested: fn.refreshData(fn.effectiveDataMode)
                     onUndoDeleteRequested: function(name) {
                         fn.undoDeletion(name);
                     }
                     onRenameRequested: function(name) {
-                        fn.targetActionLog = name;
-                        logDialogs.openRename(name);
+                        fn.targetActionData = name;
+                        dataDialogs.openRename(name);
                     }
                     onDeleteRequested: function(name) {
-                        fn.targetActionLog = name;
-                        logDialogs.openDeleteConfirm();
+                        fn.targetActionData = name;
+                        dataDialogs.openDeleteConfirm();
                     }
                 }
 
@@ -130,22 +130,22 @@ ColumnLayout {
 
                 // pass functions to helper
                 // for anything in the actions panel to the side
-                LogActionsPanel {
-                    selectedLogName: fn.selectedLogName
-                    effectiveLogMode: fn.effectiveLogMode
-                    isSelectedMarkedDeleted: fn.selectedLogName !== "" && fn.isMarkedForDeletion(fn.selectedLogName)
+                DataActionsPanel {
+                    selectedDataName: fn.selectedDataName
+                    effectiveDataMode: fn.effectiveDataMode
+                    isSelectedMarkedDeleted: fn.selectedDataName !== "" && fn.isMarkedForDeletion(fn.selectedDataName)
                     onShowInBrowserRequested: {
                         if (typeof backend !== "undefined" && backend !== null && backend.show_in_file_browser !== undefined)
-                            backend.show_in_file_browser(fn.selectedLogName);
+                            backend.show_in_file_browser(fn.selectedDataName);
 
                     }
-                    // onLoadLogRequested: fn.loadSelectedLog()
-                    onOpenLogRequested: fn.openSelectedLog()
-                    onDeleteLogRequested: {
-                        fn.targetActionLog = fn.selectedLogName;
-                        logDialogs.openDeleteConfirm();
+                    // onLoadDataRequested: fn.loadSelectedData()
+                    onOpenDataRequested: fn.openSelectedData()
+                    onDeleteDataRequested: {
+                        fn.targetActionData = fn.selectedDataName;
+                        dataDialogs.openDeleteConfirm();
                     }
-                    onUndoDeleteRequested: fn.undoDeletion(fn.selectedLogName)
+                    onUndoDeleteRequested: fn.undoDeletion(fn.selectedDataName)
                 }
 
                 Behavior on opacity {
@@ -165,7 +165,7 @@ ColumnLayout {
                 type: Kirigami.MessageType.Information
                 icon.name: "emblem-information"
                 visible: fn.dataSourceMode === "remote" && !fn.isWebsocketConnected && !dashboard.disconnectBannerDismissed
-                text: "Not connected. Connect to the server to retrieve remote log files."
+                text: "Not connected. Connect to the server to retrieve remote data files."
                 actions: [
                     Kirigami.Action {
                         text: "Connect"
@@ -185,25 +185,25 @@ ColumnLayout {
 
     }
 
-    // 3. Log-related dialogs
-    LogDialogs {
-        id: logDialogs
+    // 3. Data-related dialogs
+    DataDialogs {
+        id: dataDialogs
 
-        targetActionLog: fn.targetActionLog
+        targetActionData: fn.targetActionData
         onRenameConfirmed: function(newName) {
             let next = Object.assign({
-            }, fn.renamedLogsMap);
-            next[fn.logKey(fn.effectiveLogMode, fn.targetActionLog)] = newName;
-            fn.renamedLogsMap = next;
-            if (fn.selectedLogName === fn.targetActionLog)
-                fn.selectedLogName = newName;
+            }, fn.renamedDataMap);
+            next[fn.dataKey(fn.effectiveDataMode, fn.targetActionData)] = newName;
+            fn.renamedDataMap = next;
+            if (fn.selectedDataName === fn.targetActionData)
+                fn.selectedDataName = newName;
 
-            if (typeof backend !== "undefined" && backend !== null && backend.rename_log !== undefined)
-                backend.rename_log(fn.effectiveLogMode, fn.targetActionLog, newName);
+            if (typeof backend !== "undefined" && backend !== null && backend.rename_data !== undefined)
+                backend.rename_data(fn.effectiveDataMode, fn.targetActionData, newName);
 
         }
         onDeleteConfirmed: {
-            fn.markForDeletion(fn.targetActionLog);
+            fn.markForDeletion(fn.targetActionData);
         }
     }
 

@@ -6,7 +6,7 @@ import org.kde.kirigami as Kirigami
 Item {
     id: root
 
-    required property string targetActionLog
+    required property string targetActionData
 
     signal renameConfirmed(string newName)
     signal deleteConfirmed()
@@ -23,12 +23,12 @@ Item {
     Kirigami.PromptDialog {
         id: renameDialog
 
-        title: "Rename logfile"
-        subtitle: "Enter a new filename for '" + root.targetActionLog + "':"
+        title: "Rename datafile"
+        subtitle: "Enter a new filename for '" + root.targetActionData + "':"
         standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
         onAccepted: {
             var newName = renameField.text.trim();
-            if (newName !== "" && newName !== root.targetActionLog)
+            if (newName !== "" && newName !== root.targetActionData)
                 root.renameConfirmed(newName);
 
         }
@@ -46,8 +46,8 @@ Item {
     Kirigami.PromptDialog {
         id: deleteConfirmDialog
 
-        title: "Mark log for deletion?"
-        subtitle: "'" + root.targetActionLog + "' will be <b>permanently deleted</b> when the session or application closes.<br>You can undo this at any time before closing."
+        title: "Mark data for deletion?"
+        subtitle: "'" + root.targetActionData + "' will be <b>permanently deleted</b> when the session or application closes.<br>You can undo this at any time before closing."
         dialogType: Kirigami.PromptDialog.Warning
         iconName: "dialog-warning"
         standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel

@@ -138,7 +138,7 @@ Item {
     }
 
     Connections {
-        function on_connect_requested() {
+        function onConnect_requested() {
             if (compact && backend && backend.auto_reconnect && socket && !socket.active) {
                 console.log("[WS] connectRequested: activating WebSocket");
                 socket.active = true;

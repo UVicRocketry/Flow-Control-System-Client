@@ -6,33 +6,35 @@ QtObject {
     // --- Inputs from Parent ---
     property string dataSourceMode: "live"
     property string lastHistoryMode: "local"
-    property string selectedLogName: ""
-    property string targetActionLog: ""
+    property string selectedDataName: ""
+    property string targetActionData: ""
+
     // --- Reactive Maps & State ---
-    property var pendingDeleteMap: ({
-    })
-    property var renamedLogsMap: ({
-    })
+    property var pendingDeleteMap: ({})
+    property var renamedDataMap: ({})
+
     // Detect whether the WebSocket (ws) is currently connected
     readonly property bool isWebsocketConnected: {
-        if (ws.isConnected !== undefined)
+        if (typeof ws !== "undefined" && ws !== null && ws.isConnected !== undefined)
             return Boolean(ws.isConnected);
 
         return false;
     }
-    readonly property string effectiveLogMode: dataSourceMode === "live" ? lastHistoryMode : dataSourceMode
-    readonly property var activeLogList: {
+
+    readonly property string effectiveDataMode: dataSourceMode === "live" ? lastHistoryMode : dataSourceMode
+
+    readonly property var activeDataList: {
         var rawList = [];
-        if (effectiveLogMode === "local") {
-            if (typeof backend !== "undefined" && backend !== null && Array.isArray(backend.localLogs))
-                rawList = backend.localLogs;
+        if (effectiveDataMode === "local") {
+            if (typeof backend !== "undefined" && backend !== null && Array.isArray(backend.localData))
+                rawList = backend.localData;
             else
-                rawList = ["run_2026_10_19_coldflow.csv", "run_2026_10_18_leakcheck.csv", "telemetry_dump_04.bin", "run_2026_10_12_purge.log"];
+                rawList = ["run_2026_10_19_coldflow.csv", "run_2026_10_18_leakcheck.csv", "telemetry_dump_04.bin", "run_2026_10_12_purge.csv"];
         } else {
             if (!isWebsocketConnected)
                 rawList = [];
-            else if (typeof backend !== "undefined" && backend !== null && Array.isArray(backend.remoteLogs))
-                rawList = backend.remoteLogs;
+            else if (typeof backend !== "undefined" && backend !== null && Array.isArray(backend.remoteData))
+                rawList = backend.remoteData;
             else
                 rawList = [];
         }
@@ -40,44 +42,40 @@ QtObject {
             return item !== null && item !== undefined && String(item).trim() !== "";
         }).map(function(item) {
             var strItem = String(item);
-            var k = logKey(effectiveLogMode, strItem);
-            return renamedLogsMap[k] !== undefined ? renamedLogsMap[k] : strItem;
+            var k = dataKey(effectiveDataMode, strItem);
+            return renamedDataMap[k] !== undefined ? renamedDataMap[k] : strItem;
         });
     }
 
     // --- Helper Functions ---
-    function logKey(mode, name) {
+    function dataKey(mode, name) {
         return mode + ":" + name;
     }
 
     function isMarkedForDeletion(name) {
-        return !!pendingDeleteMap[logKey(effectiveLogMode, name)];
+        return !!pendingDeleteMap[dataKey(effectiveDataMode, name)];
     }
 
     function markForDeletion(name) {
         if (!name)
-            return ;
+            return;
 
-        var next = Object.assign({
-        }, pendingDeleteMap);
-        next[logKey(effectiveLogMode, name)] = true;
+        var next = Object.assign({}, pendingDeleteMap);
+        next[dataKey(effectiveDataMode, name)] = true;
         pendingDeleteMap = next;
-        if (typeof backend !== "undefined" && backend !== null && backend.mark_log_for_deletion !== undefined)
-            backend.mark_log_for_deletion(effectiveLogMode, name);
-
+        if (typeof backend !== "undefined" && backend !== null && backend.mark_data_for_deletion !== undefined)
+            backend.mark_data_for_deletion(effectiveDataMode, name);
     }
 
     function undoDeletion(name) {
         if (!name)
-            return ;
+            return;
 
-        var next = Object.assign({
-        }, pendingDeleteMap);
-        delete next[logKey(effectiveLogMode, name)];
+        var next = Object.assign({}, pendingDeleteMap);
+        delete next[dataKey(effectiveDataMode, name)];
         pendingDeleteMap = next;
-        if (typeof backend !== "undefined" && backend !== null && backend.unmark_log_for_deletion !== undefined)
-            backend.unmark_log_for_deletion(effectiveLogMode, name);
-
+        if (typeof backend !== "undefined" && backend !== null && backend.unmark_data_for_deletion !== undefined)
+            backend.unmark_data_for_deletion(effectiveDataMode, name);
     }
 
     function commitPendingDeletions() {
@@ -86,55 +84,46 @@ QtObject {
             let parts = keys[i].split(":");
             let mode = parts[0];
             let filename = parts.slice(1).join(":");
-            if (typeof backend !== "undefined" && backend !== null && backend.delete_log !== undefined)
-                backend.delete_log(mode, filename);
-
+            if (typeof backend !== "undefined" && backend !== null && backend.delete_data !== undefined)
+                backend.delete_data(mode, filename);
         }
-        pendingDeleteMap = ({
-        });
+        pendingDeleteMap = ({});
     }
 
     function applyRename(oldName, newName) {
-        let next = Object.assign({
-        }, renamedLogsMap);
-        next[logKey(effectiveLogMode, oldName)] = newName;
-        renamedLogsMap = next;
-        if (selectedLogName === oldName)
-            selectedLogName = newName;
+        let next = Object.assign({}, renamedDataMap);
+        next[dataKey(effectiveDataMode, oldName)] = newName;
+        renamedDataMap = next;
+        if (selectedDataName === oldName)
+            selectedDataName = newName;
 
-        if (typeof backend !== "undefined" && backend !== null && backend.rename_log !== undefined)
-            backend.rename_log(effectiveLogMode, oldName, newName);
-
+        if (typeof backend !== "undefined" && backend !== null && backend.rename_data !== undefined)
+            backend.rename_data(effectiveDataMode, oldName, newName);
     }
 
-    function refreshLogs(mode) {
+    function refreshData(mode) {
         if (typeof backend === "undefined" || backend === null)
-            return ;
+            return;
 
-        if (mode === "local" && backend.refresh_local_logs !== undefined)
-            backend.refresh_local_logs();
-        else if (mode === "remote" && isWebsocketConnected && backend.refresh_remote_logs !== undefined)
-            backend.refresh_remote_logs();
+        if (mode === "local" && backend.refresh_local_data !== undefined)
+            backend.refresh_local_data();
+        else if (mode === "remote" && isWebsocketConnected && backend.refresh_remote_data !== undefined)
+            backend.refresh_remote_data();
     }
 
-    function loadSelectedLog() {
-        if (typeof backend !== "undefined" && backend !== null && backend.load_log !== undefined)
-            backend.load_log(effectiveLogMode, selectedLogName);
-
+    function loadSelectedData() {
+        if (typeof backend !== "undefined" && backend !== null && backend.load_data !== undefined)
+            backend.load_data(effectiveDataMode, selectedDataName);
     }
 
-    function openSelectedLog() {
-        // TODO when moved to topbbar, use existing entered directory to replace quotes
-
-        if (typeof backend !== "undefined" && backend !== null && backend.open_log !== undefined)
-            backend.open_log("");
-
+    function openSelectedData() {
+        // TODO when moved to topbar, use existing entered directory to replace quotes
+        if (typeof backend !== "undefined" && backend !== null && backend.open_data !== undefined)
+            backend.open_data("");
     }
 
     function showInFileBrowser() {
         if (typeof backend !== "undefined" && backend !== null && backend.show_in_file_browser !== undefined)
-            backend.show_in_file_browser(selectedLogName);
-
+            backend.show_in_file_browser(selectedDataName);
     }
-
 }

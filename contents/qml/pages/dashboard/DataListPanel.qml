@@ -6,21 +6,21 @@ import org.kde.kirigami as Kirigami
 ColumnLayout {
     id: root
 
-    required property string effectiveLogMode
+    required property string effectiveDataMode
     required property bool isWebsocketConnected
-    required property var activeLogList
-    required property string selectedLogName
+    required property var activeDataList
+    required property string selectedDataName
     required property var pendingDeleteMap
 
-    signal logSelected(string name)
-    signal logDoubleClicked(string name)
+    signal dataSelected(string name)
+    signal dataDoubleClicked(string name)
     signal refreshRequested()
     signal undoDeleteRequested(string name)
     signal renameRequested(string name)
     signal deleteRequested(string name)
 
     function isMarked(name) {
-        return !!root.pendingDeleteMap[root.effectiveLogMode + ":" + name];
+        return !!root.pendingDeleteMap[root.effectiveDataMode + ":" + name];
     }
 
     spacing: Kirigami.Units.smallSpacing
@@ -33,13 +33,13 @@ ColumnLayout {
             id: searchField
 
             Layout.fillWidth: true
-            placeholderText: root.effectiveLogMode === "local" ? "Filter local logs..." : "Filter remote logs..."
+            placeholderText: root.effectiveDataMode === "local" ? "Filter local data..." : "Filter remote data..."
         }
 
         Controls.ToolButton {
             icon.name: "view-refresh"
             Controls.ToolTip.visible: hovered
-            Controls.ToolTip.text: "Refresh log directory"
+            Controls.ToolTip.text: "Refresh data directory"
             onClicked: root.refreshRequested()
         }
 
@@ -57,24 +57,24 @@ ColumnLayout {
             clip: true
 
             ListView {
-                id: logListView
+                id: dataListView
 
                 spacing: 0
-                model: root.activeLogList.filter(function(item) {
+                model: root.activeDataList.filter(function(item) {
                     return searchField.text === "" || item.toLowerCase().indexOf(searchField.text.toLowerCase()) !== -1;
                 })
 
                 Kirigami.PlaceholderMessage {
                     anchors.centerIn: parent
                     width: parent.width - (Kirigami.Units.largeSpacing * 2)
-                    visible: logListView.count === 0
-                    icon.name: root.effectiveLogMode === "local" ? "folder-open" : (!root.isWebsocketConnected ? "network-disconnect" : "folder-open")
-                    text: root.effectiveLogMode === "local" ? "No local logs found" : (!root.isWebsocketConnected ? "No connection" : "No remote logs found on the valve cart")
-                    explanation: root.effectiveLogMode === "remote" && !root.isWebsocketConnected ? "Connect to the server to retrieve remote log files." : ""
+                    visible: dataListView.count === 0
+                    icon.name: root.effectiveDataMode === "local" ? "folder-open" : (!root.isWebsocketConnected ? "network-disconnect" : "folder-open")
+                    text: root.effectiveDataMode === "local" ? "No local data found" : (!root.isWebsocketConnected ? "No connection" : "No remote data found on the valve cart")
+                    explanation: root.effectiveDataMode === "remote" && !root.isWebsocketConnected ? "Connect to the server to retrieve remote data files." : ""
                 }
 
                 delegate: Controls.ItemDelegate {
-                    id: logDelegate
+                    id: dataDelegate
 
                     required property string modelData
                     required property int index
@@ -82,23 +82,23 @@ ColumnLayout {
 
                     width: ListView.view.width
                     height: Kirigami.Units.iconSizes.medium + Kirigami.Units.gridUnit
-                    highlighted: root.selectedLogName === modelData && !markedDeleted
-                    onClicked: root.logSelected(modelData)
+                    highlighted: root.selectedDataName === modelData && !markedDeleted
+                    onClicked: root.dataSelected(modelData)
                     onDoubleClicked: {
                         if (!markedDeleted)
-                            root.logDoubleClicked(modelData);
+                            root.dataDoubleClicked(modelData);
 
                     }
 
                     background: Rectangle {
                         color: {
-                            if (logDelegate.highlighted)
+                            if (dataDelegate.highlighted)
                                 return Qt.alpha(Kirigami.Theme.highlightColor, 0.3);
 
-                            if (logDelegate.hovered && !logDelegate.markedDeleted)
+                            if (dataDelegate.hovered && !dataDelegate.markedDeleted)
                                 return Qt.alpha(Kirigami.Theme.hoverColor, 0.18);
 
-                            return (logDelegate.index % 2 === 0) ? Kirigami.Theme.backgroundColor : Kirigami.Theme.alternateBackgroundColor;
+                            return (dataDelegate.index % 2 === 0) ? Kirigami.Theme.backgroundColor : Kirigami.Theme.alternateBackgroundColor;
                         }
 
                         Rectangle {
@@ -106,7 +106,7 @@ ColumnLayout {
                             anchors.left: parent.left
                             anchors.right: parent.right
                             height: 1
-                            visible: logDelegate.highlighted
+                            visible: dataDelegate.highlighted
                             color: Kirigami.Theme.highlightColor
                         }
 
@@ -119,21 +119,21 @@ ColumnLayout {
                         Kirigami.Icon {
                             Layout.preferredWidth: Kirigami.Units.iconSizes.smallMedium
                             Layout.preferredHeight: Kirigami.Units.iconSizes.smallMedium
-                            source: root.effectiveLogMode === "local" ? "text-csv" : "network-server"
-                            opacity: logDelegate.markedDeleted ? 0.38 : 1
+                            source: root.effectiveDataMode === "local" ? "text-csv" : "network-server"
+                            opacity: dataDelegate.markedDeleted ? 0.38 : 1
                         }
 
                         Controls.Label {
                             Layout.fillWidth: true
-                            text: logDelegate.modelData
+                            text: dataDelegate.modelData
                             elide: Text.ElideRight
-                            font.strikeout: logDelegate.markedDeleted
-                            opacity: logDelegate.markedDeleted ? 0.42 : 1
-                            color: logDelegate.markedDeleted ? Kirigami.Theme.disabledTextColor : Kirigami.Theme.textColor
+                            font.strikeout: dataDelegate.markedDeleted
+                            opacity: dataDelegate.markedDeleted ? 0.42 : 1
+                            color: dataDelegate.markedDeleted ? Kirigami.Theme.disabledTextColor : Kirigami.Theme.textColor
                         }
 
                         Controls.Label {
-                            visible: logDelegate.markedDeleted
+                            visible: dataDelegate.markedDeleted
                             text: "Marked for deletion"
                             font.italic: true
                             font.pointSize: Kirigami.Theme.smallFont.pointSize
@@ -141,18 +141,18 @@ ColumnLayout {
                         }
 
                         Controls.ToolButton {
-                            visible: logDelegate.markedDeleted
+                            visible: dataDelegate.markedDeleted
                             icon.name: "edit-undo"
                             display: Controls.AbstractButton.IconOnly
                             Controls.ToolTip.visible: hovered
                             Controls.ToolTip.text: "Undo delete"
-                            onClicked: root.undoDeleteRequested(logDelegate.modelData)
+                            onClicked: root.undoDeleteRequested(dataDelegate.modelData)
                         }
 
                         // control buttons
                         RowLayout {
                             // Show on hover OR when the item is highlighted/selected so touch/click works on Windows
-                            visible: !logDelegate.markedDeleted && (logDelegate.hovered || logDelegate.highlighted)
+                            visible: !dataDelegate.markedDeleted && (dataDelegate.hovered || dataDelegate.highlighted)
                             spacing: Kirigami.Units.smallSpacing
                             Layout.fillHeight: true
 
@@ -160,16 +160,16 @@ ColumnLayout {
                                 icon.name: "edit-rename"
                                 display: Controls.AbstractButton.IconOnly
                                 Controls.ToolTip.visible: hovered
-                                Controls.ToolTip.text: "Rename log"
-                                onClicked: root.renameRequested(logDelegate.modelData)
+                                Controls.ToolTip.text: "Rename data"
+                                onClicked: root.renameRequested(dataDelegate.modelData)
                             }
 
                             Controls.ToolButton {
                                 icon.name: "edit-delete"
                                 display: Controls.AbstractButton.IconOnly
                                 Controls.ToolTip.visible: hovered
-                                Controls.ToolTip.text: "Mark log for deletion"
-                                onClicked: root.deleteRequested(logDelegate.modelData)
+                                Controls.ToolTip.text: "Mark data for deletion"
+                                onClicked: root.deleteRequested(dataDelegate.modelData)
                             }
 
                         }

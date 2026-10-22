@@ -135,7 +135,10 @@ def get_config_dir() -> Path:
             if not dest_file.exists():
                 try:
                     shutil.copy2(src_file, dest_file)
-                    print("[CONFIG] Init: ", f"default user config: {dest_file}")
+                    print(
+                        "[CONFIG] Init: ",
+                        f"default user config: {dest_file}"
+                    )
                 except Exception as err:
                     print(
                         "[CONFIG] Warning: ",
@@ -211,7 +214,10 @@ class Backend(QtCore.QObject):
             if is_dev_environment()
             else f"Standalone ({sys.platform})"
         )
-        print("[CONFIG] Environment: ", f"{env_type} | Config directory: {CONFIG_DIR}")
+        print(
+            "[CONFIG] Environment: ",
+            f"{env_type} | Config directory: {CONFIG_DIR}"
+        )
 
         # logs push to UI and stdout
 
@@ -392,7 +398,7 @@ class Backend(QtCore.QObject):
                 # Fallback to xdg-open on directory
                 if shutil.which("xdg-open"):
                     subprocess.Popen(["xdg-open", str(target_dir)])
-                    self.log_info(f"Showing in log folder: {target_dir}")
+                    self.log_info(f"Showing in data folder: {target_dir}")
                     return
 
             elif sys.platform == "win32":  # windows
@@ -406,13 +412,21 @@ class Backend(QtCore.QObject):
                 return
 
         except Exception as e:
-            self.log_warn(f"Failed to open log file location: {e}")
+            self.log_warn(f"Failed to open data file location: {e}")
 
     @QtCore.Slot(str)
-    def open_log(self, open_where: str = "") -> str:
+    def open_data(self, open_where: str = "") -> str:
         open_dir = open_where if not open_where else Path.home()
 
-        file = QFileDialog.get_open_file_name(None, "Open log", f"{open_dir}", ".csv")
+        file = QFileDialog.get_open_file_name(
+            None, "Open data", f"{open_dir}", ".csv"
+        )
 
-        self.log_info(f'User opened log "{file[0]}"')
-        return file[0]
+        if file[0]:
+            msg = f'User opened data "{file[0]}"'
+            self.data_opened.emit(file[0])
+        else:
+            msg = "Nothing picked."
+
+        self.log_info(msg)
+        return

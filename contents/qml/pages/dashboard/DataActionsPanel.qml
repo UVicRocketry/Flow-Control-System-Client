@@ -6,16 +6,16 @@ import org.kde.kirigami as Kirigami
 ColumnLayout {
     id: root
 
-    required property string selectedLogName
-    required property string effectiveLogMode
+    required property string selectedDataName
+    required property string effectiveDataMode
     required property bool isSelectedMarkedDeleted
-    readonly property bool hasValidSelection: selectedLogName !== "" && !isSelectedMarkedDeleted
+    readonly property bool hasValidSelection: selectedDataName !== "" && !isSelectedMarkedDeleted
 
     signal showInBrowserRequested()
-    signal openLogRequested()
-    signal deleteLogRequested()
+    signal openDataRequested()
+    signal deleteDataRequested()
     signal undoDeleteRequested()
-    signal downloadLogRequested()
+    signal downloadDataRequested()
 
     Layout.preferredWidth: implicitWidth
     Layout.maximumWidth: implicitWidth
@@ -24,7 +24,7 @@ ColumnLayout {
 
     Kirigami.Heading {
         Layout.alignment: Qt.AlignTop
-        text: "Log Actions"
+        text: "Data Actions"
         level: 4
         color: Kirigami.Theme.disabledTextColor
     }
@@ -38,37 +38,37 @@ ColumnLayout {
         Layout.fillWidth: true
         text: "Show in file browser"
         icon.name: "folder-open"
-        enabled: root.hasValidSelection && root.effectiveLogMode === "local"
+        enabled: root.hasValidSelection && root.effectiveDataMode === "local"
         onClicked: root.showInBrowserRequested()
     }
 
     Controls.Button {
         Layout.fillWidth: true
-        text: "Load Log from file..."
+        text: "Load Data from file..."
         icon.name: "document-open"
-        enabled: root.effectiveLogMode === "local"
-        onClicked: root.openLogRequested()
+        enabled: root.effectiveDataMode === "local"
+        onClicked: root.openDataRequested()
     }
 
     Controls.Button {
         Layout.fillWidth: true
-        text: "Download log..."
+        text: "Download data..."
         icon.name: "edit-download"
-        enabled: root.hasValidSelection && root.effectiveLogMode === "remote"
-        onClicked: root.downloadLogRequested()
+        enabled: root.hasValidSelection && root.effectiveDataMode === "remote"
+        onClicked: root.downloadDataRequested()
     }
 
     Controls.Button {
         Layout.fillWidth: true
-        text: "Delete log..."
+        text: "Delete data..."
         icon.name: "edit-delete"
         enabled: root.hasValidSelection
-        onClicked: root.deleteLogRequested()
+        onClicked: root.deleteDataRequested()
     }
 
     Controls.Button {
         Layout.fillWidth: true
-        visible: root.selectedLogName !== "" && root.isSelectedMarkedDeleted
+        visible: root.selectedDataName !== "" && root.isSelectedMarkedDeleted
         text: "Undo Delete"
         icon.name: "edit-undo"
         onClicked: root.undoDeleteRequested()
