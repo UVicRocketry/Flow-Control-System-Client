@@ -7,7 +7,7 @@ import org.kde.kirigami as Kirigami
 Kirigami.Dialog {
     id: root
 
-    required property var notificationModel
+    required property var notifModel
 
     signal clearRequested()
 
@@ -20,7 +20,7 @@ Kirigami.Dialog {
         Kirigami.Action {
             icon.name: "edit-clear"
             text: "Clear All"
-            enabled: root.notificationModel && root.notificationModel.count > 0
+            enabled: root.notifModel && root.notifModel.count > 0
             onTriggered: root.clearRequested()
         }
     ]
@@ -43,15 +43,15 @@ Kirigami.Dialog {
             spacing: Kirigami.Units.smallSpacing
             // Only bind the model while the dialog is open so InlineMessage delegates
             // never recalculate their internal layout while the dialog is hidden (0x0)
-            model: root.visible ? root.notificationModel : null
-            header: (root.notificationModel && root.notificationModel.count > 0) ? countHeaderComponent : null
+            model: root.visible ? root.notifModel : null
+            header: (root.notifModel && root.notifModel.count > 0) ? countHeaderComponent : null
 
             Component {
                 id: countHeaderComponent
 
                 Controls.Label {
                     width: notifListView.availableDelegateWidth
-                    text: (root.notificationModel ? root.notificationModel.count : 0) + " total messages"
+                    text: (root.notifModel ? root.notifModel.count : 0) + " total messages"
                     color: Kirigami.Theme.disabledTextColor
                     bottomPadding: Kirigami.Units.smallSpacing
                 }
@@ -61,7 +61,7 @@ Kirigami.Dialog {
             Kirigami.PlaceholderMessage {
                 anchors.centerIn: parent
                 width: parent.width - (Kirigami.Units.largeSpacing * 2)
-                visible: !root.notificationModel || root.notificationModel.count === 0
+                visible: !root.notifModel || root.notifModel.count === 0
                 icon.name: "dialog-information"
                 text: "No notifications"
                 explanation: "System alerts and diagnostic logs will appear here."
@@ -87,8 +87,8 @@ Kirigami.Dialog {
                 timed: false
                 animateEntryExit: false
                 onDismissed: {
-                    if (root.notificationModel && typeof root.notificationModel.remove === "function")
-                        root.notificationModel.remove(index);
+                    if (root.notifModel && typeof root.notifModel.remove === "function")
+                        root.notifModel.remove(index);
 
                 }
             }

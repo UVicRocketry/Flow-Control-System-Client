@@ -83,6 +83,10 @@ Kirigami.ApplicationWindow {
 
             },
             Kirigami.Action {
+                text: "Record data"
+                icon.name: "keyframe-record"
+            },
+            Kirigami.Action {
                 text: "Connection"
 
                 displayComponent: Websocket {
@@ -143,7 +147,7 @@ Kirigami.ApplicationWindow {
             id: notificationTray
 
             objectName: "notificationTray"
-            notificationModel: notificationModel
+            notifModel: notificationModel
             onClearRequested: {
                 notificationModel.clear();
                 notificationModel.unreadCount = 0;

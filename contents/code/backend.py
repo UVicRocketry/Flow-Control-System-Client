@@ -203,6 +203,7 @@ class Backend(QtCore.QObject):
     reconnect_interval_ms_changed = QtCore.Signal(int)
     connect_requested = QtCore.Signal()
     log_sent = QtCore.Signal(str, str)
+    data_opened = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
