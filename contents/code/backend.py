@@ -204,6 +204,7 @@ class Backend(QtCore.QObject):
     connect_requested = QtCore.Signal()
     log_sent = QtCore.Signal(str, str)
     data_opened = QtCore.Signal(str)
+    data_loaded = QtCore.Signal(str, str, "QVariant")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -434,19 +435,52 @@ class Backend(QtCore.QObject):
         except Exception as e:
             self.log_warn(f"Failed to open data file location: {e}")
 
-    @QtCore.Slot(str)
+    @QtCore.Slot(str, str, result="QVariant")
+    @QtCore.Slot(str, result="QVariant")
+    def load_data(self, mode_or_path: str, file_path: str = "") -> dict:
+        """
+        Loads telemetry data from the target file (stubbed) and emits data_loaded.
+        Can be called from open_data() or when double-clicking a file in the
+        built-in data browser (local, remote, or external).
+        """
+        if file_path:
+            mode = mode_or_path
+            target = file_path
+        else:
+            mode = "external"
+            target = mode_or_path
+
+        if not target:
+            self.log_warn("No data file specified to load.")
+            return {}
+
+        stub_data = {
+            "source": mode,
+            "path": target,
+            "name": Path(target).name,
+            "columns": ["timestamp", "pressure_psi", "temp_c"],
+            "rows": [],
+        }
+
+        self.log_info(f'Loaded data "{target}" ({mode})')
+        self.data_loaded.emit(mode, target, stub_data)
+        return stub_data
+
+    @QtCore.Slot(str, result=str)
+    @QtCore.Slot(result=str)
     def open_data(self, open_where: str = "") -> str:
-        open_dir = open_where if not open_where else Path.home()
+        open_dir = open_where if open_where else Path.home()
 
         file = QFileDialog.get_open_file_name(
-            None, "Open data", f"{open_dir}", ".csv"
+            None, "Open data", f"{open_dir}", "*.csv"
         )
 
         if file[0]:
             msg = f'User opened data "{file[0]}"'
+            self.log_info(msg)
             self.data_opened.emit(file[0])
+            self.load_data("external", file[0])
+            return file[0]
         else:
-            msg = "Nothing picked."
-
-        self.log_info(msg)
-        return
+            self.log_info("Nothing picked.")
+            return ""

@@ -30,6 +30,10 @@ ColumnLayout {
             dashboard.disconnectBannerDismissed = false;
         }
 
+        function onData_loaded(mode, filePath, data) {
+            fn.onLoad_data(mode, filePath, data);
+        }
+
         target: typeof backend !== "undefined" ? backend : null
         ignoreUnknownSignals: true
     }
@@ -69,6 +73,7 @@ ColumnLayout {
         header: DashboardHeader {
             dataSourceMode: fn.dataSourceMode
             selectedDataName: fn.selectedDataName
+            loadedDataName: fn.loadedDataName
             onModeSelected: function(mode) {
                 if (mode !== "live") {
                     fn.lastHistoryMode = mode;
@@ -101,7 +106,9 @@ ColumnLayout {
                     effectiveDataMode: fn.effectiveDataMode
                     isWebsocketConnected: fn.isWebsocketConnected
                     activeDataList: fn.activeDataList
+                    externalDataList: fn.externalDataList
                     selectedDataName: fn.selectedDataName
+                    loadedDataName: fn.loadedDataName
                     pendingDeleteMap: fn.pendingDeleteMap
                     onDataSelected: function(name) {
                         fn.selectedDataName = name;
@@ -191,16 +198,7 @@ ColumnLayout {
 
         targetActionData: fn.targetActionData
         onRenameConfirmed: function(newName) {
-            let next = Object.assign({
-            }, fn.renamedDataMap);
-            next[fn.dataKey(fn.effectiveDataMode, fn.targetActionData)] = newName;
-            fn.renamedDataMap = next;
-            if (fn.selectedDataName === fn.targetActionData)
-                fn.selectedDataName = newName;
-
-            if (typeof backend !== "undefined" && backend !== null && backend.rename_data !== undefined)
-                backend.rename_data(fn.effectiveDataMode, fn.targetActionData, newName);
-
+            fn.applyRename(fn.targetActionData, newName);
         }
         onDeleteConfirmed: {
             fn.markForDeletion(fn.targetActionData);

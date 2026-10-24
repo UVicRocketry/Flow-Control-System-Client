@@ -47,14 +47,15 @@ DEFAULT_ICONS = [
     "edit-download",
     "search",
     "search-symbolic",
-    "notifications"
+    "notifications",
+    "keyframe-record"
 ]
 
 SEARCH_THEMES = [
-    # Path("/usr/share/icons/breeze"),
     # Path("/usr/local/share/icons/breeze"),
     Path.home() / ".local/share/icons/kora",
-    # Path("/usr/share/icons/breeze-dark"),
+    Path("/usr/share/icons/breeze-dark"),
+    Path("/usr/share/icons/breeze"),
     Path("/usr/share/icons/hicolor"),
 ]
 

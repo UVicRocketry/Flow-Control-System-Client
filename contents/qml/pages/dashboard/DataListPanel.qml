@@ -9,7 +9,9 @@ ColumnLayout {
     required property string effectiveDataMode
     required property bool isWebsocketConnected
     required property var activeDataList
+    property var externalDataList: []
     required property string selectedDataName
+    property string loadedDataName: ""
     required property var pendingDeleteMap
 
     signal dataSelected(string name)
@@ -19,8 +21,9 @@ ColumnLayout {
     signal renameRequested(string name)
     signal deleteRequested(string name)
 
-    function isMarked(name) {
-        return !!root.pendingDeleteMap[root.effectiveDataMode + ":" + name];
+    function isMarked(name, section) {
+        var mode = section || root.effectiveDataMode;
+        return !!root.pendingDeleteMap[mode + ":" + name];
     }
 
     spacing: Kirigami.Units.smallSpacing
@@ -60,9 +63,53 @@ ColumnLayout {
                 id: dataListView
 
                 spacing: 0
-                model: root.activeDataList.filter(function(item) {
-                    return searchField.text === "" || item.toLowerCase().indexOf(searchField.text.toLowerCase()) !== -1;
-                })
+                model: {
+                    var query = searchField.text.toLowerCase();
+                    var items = [];
+                    if (Array.isArray(root.externalDataList)) {
+                        for (var i = 0; i < root.externalDataList.length; i++) {
+                            var extItem = String(root.externalDataList[i]);
+                            if (query === "" || extItem.toLowerCase().indexOf(query) !== -1) {
+                                items.push({
+                                    "name": extItem,
+                                    "section": "external"
+                                });
+                            }
+                        }
+                    }
+                    if (Array.isArray(root.activeDataList)) {
+                        for (var j = 0; j < root.activeDataList.length; j++) {
+                            var item = String(root.activeDataList[j]);
+                            if (query === "" || item.toLowerCase().indexOf(query) !== -1) {
+                                items.push({
+                                    "name": item,
+                                    "section": root.effectiveDataMode
+                                });
+                            }
+                        }
+                    }
+                    return items;
+                }
+                section.property: "section"
+                section.delegate: Rectangle {
+                    required property string section
+
+                    width: ListView.view.width
+                    height: Kirigami.Units.gridUnit * 1.4
+                    color: Kirigami.Theme.alternateBackgroundColor
+
+                    Controls.Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.leftMargin: Kirigami.Units.smallSpacing
+                        text: parent.section
+                        font.bold: true
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                        font.capitalization: Font.AllUppercase
+                        color: Kirigami.Theme.disabledTextColor
+                    }
+
+                }
 
                 Kirigami.PlaceholderMessage {
                     anchors.centerIn: parent
@@ -76,17 +123,20 @@ ColumnLayout {
                 delegate: Controls.ItemDelegate {
                     id: dataDelegate
 
-                    required property string modelData
+                    required property var modelData
                     required property int index
-                    readonly property bool markedDeleted: root.isMarked(modelData)
+                    readonly property string itemName: modelData && modelData.name !== undefined ? String(modelData.name) : String(modelData)
+                    readonly property string itemSection: modelData && modelData.section !== undefined ? String(modelData.section) : root.effectiveDataMode
+                    readonly property bool markedDeleted: root.isMarked(itemName, itemSection)
+                    readonly property bool isLoaded: root.loadedDataName !== "" && root.loadedDataName === itemName && !markedDeleted
 
                     width: ListView.view.width
                     height: Kirigami.Units.iconSizes.medium + Kirigami.Units.gridUnit
-                    highlighted: root.selectedDataName === modelData && !markedDeleted
-                    onClicked: root.dataSelected(modelData)
+                    highlighted: root.selectedDataName === itemName && !markedDeleted
+                    onClicked: root.dataSelected(itemName)
                     onDoubleClicked: {
                         if (!markedDeleted)
-                            root.dataDoubleClicked(modelData);
+                            root.dataDoubleClicked(itemName);
 
                     }
 
@@ -119,17 +169,26 @@ ColumnLayout {
                         Kirigami.Icon {
                             Layout.preferredWidth: Kirigami.Units.iconSizes.smallMedium
                             Layout.preferredHeight: Kirigami.Units.iconSizes.smallMedium
-                            source: root.effectiveDataMode === "local" ? "text-csv" : "network-server"
+                            source: dataDelegate.itemSection === "remote" ? "network-server" : "text-csv"
                             opacity: dataDelegate.markedDeleted ? 0.38 : 1
                         }
 
                         Controls.Label {
                             Layout.fillWidth: true
-                            text: dataDelegate.modelData
+                            text: dataDelegate.itemName
                             elide: Text.ElideRight
+                            font.bold: dataDelegate.isLoaded
                             font.strikeout: dataDelegate.markedDeleted
                             opacity: dataDelegate.markedDeleted ? 0.42 : 1
                             color: dataDelegate.markedDeleted ? Kirigami.Theme.disabledTextColor : Kirigami.Theme.textColor
+                        }
+
+                        Controls.Label {
+                            visible: dataDelegate.isLoaded
+                            text: "Loaded"
+                            font.italic: true
+                            font.pointSize: Kirigami.Theme.smallFont.pointSize
+                            color: Kirigami.Theme.positiveTextColor
                         }
 
                         Controls.Label {
@@ -146,7 +205,7 @@ ColumnLayout {
                             display: Controls.AbstractButton.IconOnly
                             Controls.ToolTip.visible: hovered
                             Controls.ToolTip.text: "Undo delete"
-                            onClicked: root.undoDeleteRequested(dataDelegate.modelData)
+                            onClicked: root.undoDeleteRequested(dataDelegate.itemName)
                         }
 
                         // control buttons
@@ -161,7 +220,7 @@ ColumnLayout {
                                 display: Controls.AbstractButton.IconOnly
                                 Controls.ToolTip.visible: hovered
                                 Controls.ToolTip.text: "Rename data"
-                                onClicked: root.renameRequested(dataDelegate.modelData)
+                                onClicked: root.renameRequested(dataDelegate.itemName)
                             }
 
                             Controls.ToolButton {
@@ -169,7 +228,7 @@ ColumnLayout {
                                 display: Controls.AbstractButton.IconOnly
                                 Controls.ToolTip.visible: hovered
                                 Controls.ToolTip.text: "Mark data for deletion"
-                                onClicked: root.deleteRequested(dataDelegate.modelData)
+                                onClicked: root.deleteRequested(dataDelegate.itemName)
                             }
 
                         }

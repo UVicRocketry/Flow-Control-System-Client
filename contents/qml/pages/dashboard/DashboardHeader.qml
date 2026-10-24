@@ -8,6 +8,7 @@ ColumnLayout {
 
     required property string dataSourceMode
     required property string selectedDataName
+    property string loadedDataName: ""
 
     signal modeSelected(string mode)
 
@@ -31,7 +32,18 @@ ColumnLayout {
             }
 
             Controls.Label {
-                text: root.dataSourceMode === "live" ? "Viewing live telemetry. Actuation panels are accessible from the left sidebar navigation." : (root.selectedDataName !== "" ? "Viewing data:\n" + root.selectedDataName : "Select a data file below and click 'Load Data' to inspect recorded telemetry.")
+                text: {
+                    if (root.dataSourceMode === "live")
+                        return "Viewing live telemetry. Actuation panels are accessible from the left sidebar navigation.";
+
+                    if (root.loadedDataName !== "")
+                        return "Viewing data:\n" + root.loadedDataName;
+
+                    if (root.selectedDataName !== "")
+                        return "Selected data:\n" + root.selectedDataName + " (double-click to load)";
+
+                    return "Double-click a data file below or click 'Load Data from file...' to inspect recorded telemetry.";
+                }
                 color: Kirigami.Theme.disabledTextColor
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
