@@ -187,11 +187,18 @@ Item {
                 return ;
 
             wsRoot.messageReceived(message);
-            try {
-                let data = JSON.parse(message);
-                wsRoot.jsonReceived(data);
-            } catch (e) {
-                backend.warn("Received malformed non-JSON WebSocket payload: " + message);
+            var lines = String(message).split("\n");
+            for (var i = 0; i < lines.length; ++i) {
+                var line = lines[i].trim();
+                if (line.length === 0)
+                    continue;
+
+                try {
+                    let data = JSON.parse(line);
+                    wsRoot.jsonReceived(data);
+                } catch (e) {
+                    backend.warn("Received malformed non-JSON WebSocket payload: " + line);
+                }
             }
         }
 

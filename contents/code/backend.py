@@ -1,15 +1,10 @@
 # This Python file uses the following encoding: utf-8
 """
 Flow Control Client - Backend Controller
-Provides QObject bridge between PySide6/QML and configuration management.
-Manages application configuration, server connection settings, and persistence.
+provides QObject bridge between PySide6/QML and configuration/telemetry helpers.
 """
 
 import sys
-import os
-import json
-import shutil
-import subprocess
 import time
 from pathlib import Path
 
@@ -17,175 +12,38 @@ from PySide6 import QtCore
 from PySide6.QtWidgets import QFileDialog
 from __feature__ import snake_case, true_property
 
+from config_manager import (
+    CONFIG_DIR,
+    CONFIG_FILE,
+    CURRENT_DIR,
+    GRAPHS_CONFIG_DIR,
+    GRAPHS_CONFIG_FILE,
+    REPO_ROOT,
+    ensure_config_file_exists,
+    get_config_dir,
+    get_default_config_dir,
+    get_default_config_file,
+    get_default_graphs_config_file,
+    get_user_config_dir,
+    is_dev_environment,
+    read_app_config,
+    read_graphs_config,
+    write_app_config,
+)
+from telemetry_files import (
+    parse_telemetry_file,
+    resolve_data_file,
+    reveal_in_file_browser,
+)
+from telemetry_series import (
+    format_channel_meta,
+    ingest_ws_telemetry_frames,
+    list_available_channels,
+    query_channel_series,
+    register_channel_if_missing,
+)
+
 assert snake_case, true_property
-
-CURRENT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = CURRENT_DIR.parent.parent
-
-
-def get_default_config_dir() -> Path:
-    """
-    Returns the bundled/source default configuration directory
-    (/contents/config/).
-    Used directly in development, and bundled as default template for
-    standalone packages.
-    """
-    # 1. PyInstaller single-file temporary bundle
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        meipass_cfg = Path(sys._MEIPASS) / "contents" / "config"
-        if meipass_cfg.exists():
-            return meipass_cfg
-        return Path(sys._MEIPASS) / "config"
-
-    # 2. PyInstaller onedir distribution
-    exe_dir = Path(sys.executable).resolve().parent
-    for sub in [
-        exe_dir / "_internal" / "contents" / "config",
-        exe_dir / "contents" / "config",
-        exe_dir / "config",
-    ]:
-        if sub.exists():
-            return sub
-
-    # 3. Source repository tree (/contents/config/)
-    src_cfg = CURRENT_DIR.parent / "config"
-    return src_cfg
-
-
-def get_user_config_dir() -> Path:
-    """
-    Returns the standard OS-specific user configuration directory:
-    - Linux / Unix: $XDG_CONFIG_HOME/flow-control
-      (default ~/.config/flow-control)
-    - Windows: %APPDATA%/FlowControl (default ~/AppData/Roaming/FlowControl)
-    - macOS: ~/Library/Application Support/FlowControl
-    """
-    if sys.platform.startswith("win32"):
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            return Path(appdata) / "FlowControl"
-        return Path.home() / "AppData" / "Roaming" / "FlowControl"
-    elif sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "FlowControl"
-    else:
-        xdg_config = os.environ.get("XDG_CONFIG_HOME")
-        if xdg_config:
-            return Path(xdg_config) / "flow-control"
-        return Path.home() / ".config" / "flow-control"
-
-
-def is_dev_environment() -> bool:
-    """
-    Determines whether the application is running in a development environment.
-    - Forced dev mode: FLOW_CONTROL_DEV=1
-    - Forced user mode: FLOW_CONTROL_DEV=0 or FLOW_CONTROL_USE_USER_CONFIG=1
-    - Standalone package (PyInstaller / frozen): False
-    - Running from source tree: True
-    """
-    env_force = os.environ.get("FLOW_CONTROL_DEV")
-    if env_force is not None:
-        return env_force.strip() in ("1", "true", "True", "yes")
-
-    if os.environ.get("FLOW_CONTROL_USE_USER_CONFIG") == "1":
-        return False
-
-    return not getattr(sys, "frozen", False)
-
-
-def get_config_dir() -> Path:
-    """
-    Resolves the active configuration directory:
-    - In dev mode: pulls directly from /contents/config/
-    - In standalone packages: uses the OS-specific user config directory,
-      initializing missing files from /contents/config/ as defaults.
-    """
-    if is_dev_environment():
-        dev_dir = get_default_config_dir()
-        try:
-            dev_dir.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            pass
-        return dev_dir
-
-    # Standalone packaged distribution
-    user_dir = get_user_config_dir()
-    try:
-        user_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as err:
-        print(
-            f"""
-        [CONFIG] Notice: Cannot write to {user_dir} ({err}).
-         Falling back to temp directory.
-        """,
-            file=sys.stderr,
-        )
-        tmp_base = os.environ.get("TEMP") or os.environ.get("TMP") or "/tmp"
-        fallback_dir = Path(tmp_base) / "flow-control"
-        try:
-            fallback_dir.mkdir(parents=True, exist_ok=True)
-            user_dir = fallback_dir
-        except OSError:
-            user_dir = get_default_config_dir()
-
-    # Seed default configuration files from bundled template if not yet present
-    default_dir = get_default_config_dir()
-    if default_dir.exists() and default_dir.is_dir():
-        for src_file in default_dir.glob("*.json"):
-            dest_file = user_dir / src_file.name
-            if not dest_file.exists():
-                try:
-                    shutil.copy2(src_file, dest_file)
-                    print(
-                        "[CONFIG] Init: ",
-                        f"default user config: {dest_file}"
-                    )
-                except Exception as err:
-                    print(
-                        "[CONFIG] Warning: ",
-                        f"Could not copy template {src_file.name}: {err}",
-                        file=sys.stderr,
-                    )
-
-    return user_dir
-
-
-# Active configuration locations
-CONFIG_DIR = get_config_dir()
-CONFIG_FILE = CONFIG_DIR / "config.json"
-
-
-def get_default_config_file() -> Path:
-    """Returns the path to the template config/config.json."""
-    return get_default_config_dir() / "config.json"
-
-
-def ensure_config_file_exists():
-    """
-    populates CONFIG_FILE if absent
-    """
-    if not CONFIG_FILE.exists():
-        template_file = get_default_config_file()
-        if template_file.exists():
-            try:
-                CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(template_file, CONFIG_FILE)
-                print(
-                    "[CONFIG] Init: ",
-                    f"config file from {template_file} -> {CONFIG_FILE}",
-                )
-            except Exception as err:
-                print(
-                    "[CONFIG] Notice: ",
-                    f"Could not copy template config to {CONFIG_FILE}: {err}",
-                    file=sys.stderr,
-                )
-        else:
-            print(
-                "[CONFIG] Warning: ",
-                f"Template config file not found at {template_file}",
-                file=sys.stderr,
-            )
-
 
 ensure_config_file_exists()
 
@@ -193,10 +51,10 @@ ensure_config_file_exists()
 class Backend(QtCore.QObject):
     """
     QObject bridge for PySide6/QML.
-    exposes configuration properties and settings
+    exposes configuration properties, file loading, and telemetry series queries.
     """
 
-    # Signals
+    # signals
     config_changed = QtCore.Signal()
     server_url_changed = QtCore.Signal(str)
     auto_reconnect_changed = QtCore.Signal(bool)
@@ -205,10 +63,37 @@ class Backend(QtCore.QObject):
     log_sent = QtCore.Signal(str, str)
     data_opened = QtCore.Signal(str)
     data_loaded = QtCore.Signal(str, str, "QVariant")
+    telemetry_changed = QtCore.Signal()
+    telemetry_point_received = QtCore.Signal("QVariantMap")
+    channels_changed = QtCore.Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._config_data = {}
+        self._known_channels = {}
+        self._default_graph_cards = []
+        self._live_records = []
+        self._live_seconds = []
+        self._live_t0 = None
+        self.load_graphs_config()
+        self._latest_telemetry = {
+            "seconds": 0.0,
+            "uptime": 0.0,
+            "packet_id": 0,
+            "values": {k: 0.0 for k in self._known_channels},
+        }
+        self._loaded_records = []
+        self._loaded_seconds = []
+        self._loaded_meta = {
+            "name": "",
+            "path": "",
+            "source": "",
+            "minTime": 0.0,
+            "maxTime": 0.0,
+            "duration": 0.0,
+            "count": 0,
+            "columns": list(self._known_channels.keys()),
+        }
         self.load_config()
 
         env_type = (
@@ -218,10 +103,10 @@ class Backend(QtCore.QObject):
         )
         print(
             "[CONFIG] Environment: ",
-            f"{env_type} | Config directory: {CONFIG_DIR}"
+            f"{env_type} | Config directory: {CONFIG_DIR}",
         )
 
-        # logs push to UI and stdout
+    # logging helpers (push to UI toaster/notification tray and stdout/stderr)
 
     def log_info(self, msg: str):
         self._send_log("INFO", msg)
@@ -240,7 +125,7 @@ class Backend(QtCore.QObject):
 
     @QtCore.Slot(str, str)
     def log(self, level: str, msg: str):
-        """Logger for QML"""
+        """logger slot for QML."""
         lvl = level.upper()
         out_stream = sys.stderr if lvl == "ERR" else sys.stdout
         self._send_log(lvl, msg, file=out_stream)
@@ -256,6 +141,8 @@ class Backend(QtCore.QObject):
     @QtCore.Slot(str)
     def err(self, msg: str):
         self.log_error(msg)
+
+    # configuration properties & slots
 
     @QtCore.Property(str, notify=config_changed)
     def config_dir(self) -> str:
@@ -316,32 +203,8 @@ class Backend(QtCore.QObject):
 
     @QtCore.Slot(result="QVariantMap")
     def load_config(self) -> dict:
-        """Loads configuration from CONFIG_FILE"""
-        if CONFIG_FILE.exists():
-            target_path = CONFIG_FILE
-        else:
-            get_default_config_file()
-
-        if target_path.exists():
-            try:
-                with open(target_path, "r", encoding="utf-8") as f:
-                    self._config_data = json.load(f)
-            except Exception as err:
-                self.log_error(f"Error reading {target_path}: {err}.")
-                self._config_data = {}
-        else:
-            self.log_error(f"No configuration file found at {target_path}.")
-            self._config_data = {}
-
-        ensure_config_file_exists()
-
-        # Environment variable override takes highest precedence for server URL
-        env_url = os.environ.get("FLOW_CONTROL_WS_URL")
-        if env_url:
-            if "server" not in self._config_data:
-                self._config_data["server"] = {}
-            self._config_data["server"]["default_url"] = env_url
-
+        """loads configuration from CONFIG_FILE via config_manager."""
+        self._config_data = read_app_config(self.log_error)
         self.config_changed.emit()
         self.server_url_changed.emit(self.server_url)
         self.auto_reconnect_changed.emit(self.auto_reconnect)
@@ -350,18 +213,12 @@ class Backend(QtCore.QObject):
 
     @QtCore.Slot("QVariantMap", result=bool)
     def save_config(self, data: dict) -> bool:
-        """Saves dictionary data to CONFIG_FILE."""
-        try:
-            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4)
+        """saves dictionary data to CONFIG_FILE via config_manager."""
+        if write_app_config(data, self.log_error):
             self._config_data = data
             self.config_changed.emit()
             return True
-
-        except Exception as err:
-            self.log_error(f"Couldnt save config to {CONFIG_FILE}: {err}")
-            return False
+        return False
 
     @QtCore.Slot(str, result="QVariant")
     @QtCore.Slot(str, "QVariant", result="QVariant")
@@ -387,62 +244,76 @@ class Backend(QtCore.QObject):
 
     @QtCore.Slot()
     def connect_to_server(self):
-        """Signals QML/listeners to initiate WebSocket connection."""
+        """signals QML/listeners to initiate WebSocket connection."""
         self.connect_requested.emit()
 
     @QtCore.Slot()
     def connect(self):
-        """Connection entrypoint called on startup."""
+        """connection entrypoint called on startup."""
         self.connect_to_server()
 
     @QtCore.Slot(str)
     def show_in_file_browser(self, url: str):
-        target_file = Path(url).resolve()
-        target_dir = target_file.parent
-        try:
-            if sys.platform.startswith("linux"):
-                cmd = [
-                    "dbus-send",
-                    "--session",
-                    "--dest=org.freedesktop.FileManager1",
-                    "--type=method_call",
-                    "/org/freedesktop/FileManager1",
-                    "org.freedesktop.FileManager1.ShowItems",
-                    f"array:string:file://{target_file}",
-                    "string:",
-                ]
-                res = subprocess.run(cmd, capture_output=True, timeout=1)
-                if res.returncode == 0:
-                    self.log_info(f"Showing in file manager: {target_file.name}")
-                    return
+        reveal_in_file_browser(url, self.log_info, self.log_warn)
 
-                # Fallback to xdg-open on directory
-                if shutil.which("xdg-open"):
-                    subprocess.Popen(["xdg-open", str(target_dir)])
-                    self.log_info(f"Showing in data folder: {target_dir}")
-                    return
+    # telemetry & graphs configuration
 
-            elif sys.platform == "win32":  # windows
-                subprocess.Popen(f'explorer /select,"{target_file}"')
-                self.log_info(f"Showing file in Explorer: {target_file.name}")
-                return
+    @QtCore.Slot()
+    def load_graphs_config(self):
+        """loads default channels and default graph cards from config/graphs/graphs.json."""
+        known_channels, default_cards = read_graphs_config(self.log_error)
+        if known_channels:
+            self._known_channels = known_channels
+        if default_cards:
+            self._default_graph_cards = default_cards
+        self.channels_changed.emit()
 
-            elif sys.platform == "darwin":  # macos
-                subprocess.Popen(["open", "-R", str(target_file)])
-                self.log_info(f"Showing file in Finder: {target_file.name}")
-                return
+    @QtCore.Property("QVariantMap", notify=telemetry_changed)
+    def telemetry(self) -> dict:
+        return self._latest_telemetry
 
-        except Exception as e:
-            self.log_warn(f"Failed to open data file location: {e}")
+    @QtCore.Property("QVariantMap", notify=telemetry_changed)
+    def loaded_meta(self) -> dict:
+        return self._loaded_meta
+
+    @QtCore.Property("QVariantList", notify=channels_changed)
+    def default_graph_cards(self) -> list:
+        return self._default_graph_cards
+
+    @QtCore.Property("QVariantList", notify=channels_changed)
+    def available_channels(self) -> list:
+        return list_available_channels(self._known_channels)
+
+    @QtCore.Slot(str, result="QVariantMap")
+    def get_channel_meta(self, channel: str) -> dict:
+        return format_channel_meta(self._known_channels, channel)
+
+    # live WebSocket telemetry ingestion & file loading
+
+    @QtCore.Slot(str)
+    def ingest_ws_message(self, raw_message: str):
+        """ingests incoming WebSocket JSON / JSONL frames into live telemetry storage."""
+        new_channels, ingested_records, self._live_t0, self._latest_telemetry = (
+            ingest_ws_telemetry_frames(
+                raw_message,
+                self._known_channels,
+                self._live_records,
+                self._live_seconds,
+                self._live_t0,
+                self._latest_telemetry,
+            )
+        )
+        for rec in ingested_records:
+            self.telemetry_point_received.emit(rec)
+        if new_channels:
+            self.channels_changed.emit()
+        if ingested_records:
+            self.telemetry_changed.emit()
 
     @QtCore.Slot(str, str, result="QVariant")
     @QtCore.Slot(str, result="QVariant")
     def load_data(self, mode_or_path: str, file_path: str = "") -> dict:
-        """
-        Loads telemetry data from the target file (stubbed) and emits data_loaded.
-        Can be called from open_data() or when double-clicking a file in the
-        built-in data browser (local, remote, or external).
-        """
+        """loads telemetry data (.csv or .jsonl) from the target file and emits data_loaded."""
         if file_path:
             mode = mode_or_path
             target = file_path
@@ -454,17 +325,74 @@ class Backend(QtCore.QObject):
             self.log_warn("No data file specified to load.")
             return {}
 
-        stub_data = {
+        try:
+            resolved_path = resolve_data_file(target, self._known_channels)
+            records, seconds_list, cols = parse_telemetry_file(resolved_path)
+        except Exception as err:
+            self.log_error(f'Failed to parse data file "{target}": {err}')
+            return {}
+
+        new_ch = False
+        for c in cols:
+            if register_channel_if_missing(self._known_channels, c):
+                new_ch = True
+        if new_ch:
+            self.channels_changed.emit()
+
+        self._loaded_records = records
+        self._loaded_seconds = seconds_list
+        min_t = seconds_list[0] if seconds_list else 0.0
+        max_t = seconds_list[-1] if seconds_list else 0.0
+
+        self._loaded_meta = {
             "source": mode,
             "path": target,
+            "resolvedPath": str(resolved_path),
             "name": Path(target).name,
-            "columns": ["timestamp", "pressure_psi", "temp_c"],
-            "rows": [],
+            "columns": list(cols),
+            "count": len(records),
+            "minTime": min_t,
+            "maxTime": max_t,
+            "duration": max(0.0, max_t - min_t),
         }
 
-        self.log_info(f'Loaded data "{target}" ({mode})')
-        self.data_loaded.emit(mode, target, stub_data)
-        return stub_data
+        self.log_info(
+            f'Loaded data "{Path(target).name}" ({mode}, {len(records)} samples)'
+        )
+        self.data_loaded.emit(mode, target, self._loaded_meta)
+        self.telemetry_changed.emit()
+        return self._loaded_meta
+
+    @QtCore.Slot(str, str, float, float, int, bool, int, result="QVariantMap")
+    def get_channel_data(
+        self,
+        source_mode: str,
+        channel: str,
+        t_start: float,
+        t_end: float,
+        max_buckets: int = 300,
+        filter_outliers_3std: bool = False,
+        smoothing_window: int = 1,
+    ) -> dict:
+        """
+        returns windowed, optionally 3-std outlier-filtered, bucket-downsampled,
+        and smoothed time-series points for a given channel.
+        """
+        # use loaded file records when in local/remote/external mode, and live stream records in live mode
+        use_loaded = source_mode != "live"
+        records = self._loaded_records if use_loaded else self._live_records
+        seconds_list = self._loaded_seconds if use_loaded else self._live_seconds
+
+        return query_channel_series(
+            records=records,
+            seconds_list=seconds_list,
+            channel=channel,
+            t_start=t_start,
+            t_end=t_end,
+            max_buckets=max_buckets,
+            filter_outliers_3std=filter_outliers_3std,
+            smoothing_window=smoothing_window,
+        )
 
     @QtCore.Slot(str, result=str)
     @QtCore.Slot(result=str)
@@ -472,7 +400,10 @@ class Backend(QtCore.QObject):
         open_dir = open_where if open_where else Path.home()
 
         file = QFileDialog.get_open_file_name(
-            None, "Open data", f"{open_dir}", "*.csv"
+            None,
+            "Open data",
+            f"{open_dir}",
+            "Telemetry Files (*.csv *.jsonl);;CSV Files (*.csv);;JSONL Files (*.jsonl);;All Files (*)",
         )
 
         if file[0]:

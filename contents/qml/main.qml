@@ -43,6 +43,9 @@ Kirigami.ApplicationWindow {
         url: backend ? backend.server_url : "ws://127.0.0.1:8080/ws"
         active: false
         onTextMessageReceived: function(message) {
+            if (typeof backend !== "undefined" && backend && typeof backend.ingest_ws_message === "function")
+                backend.ingest_ws_message(message);
+
             try {
                 let data = JSON.parse(message);
                 root.webSocketMessageReceived(data);
@@ -108,14 +111,22 @@ Kirigami.ApplicationWindow {
 
                 // 0
                 Dashboard {
+                    id: dashboardPage
                 }
 
                 // 1
                 Actuators {
+                    id: actuatorsPage
                 }
 
                 // 2
                 Graphs {
+                    id: graphsPage
+
+                    windowSeconds: sidebarNav.effectiveWindowSeconds
+                    global3StdFilter: sidebarNav.smoothAllActive
+                    editLayoutMode: sidebarNav.editLayoutActive
+                    dataSourceMode: dashboardPage.dataSourceMode
                 }
 
             }
@@ -209,6 +220,20 @@ Kirigami.ApplicationWindow {
             Layout.fillHeight: true
             Layout.margins: Kirigami.Units.gridUnit / 4
             unreadNotificationCount: notificationModel.unreadCount
+            // track all currently visible views so view helpers work for both single StackLayout and side-by-side multi-page layouts
+            visiblePages: {
+                var pages = [];
+                if (dashboardPage.visible)
+                    pages.push("dashboard");
+
+                if (actuatorsPage.visible)
+                    pages.push("actuators");
+
+                if (graphsPage.visible)
+                    pages.push("graphs");
+
+                return pages;
+            }
             onNavigateRequested: function(pageName) {
                 if (pageName === "dashboard")
                     contentStack.currentIndex = 0;

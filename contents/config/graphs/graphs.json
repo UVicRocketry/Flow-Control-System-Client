@@ -1,0 +1,252 @@
+{
+    "channels": {
+        "P_RUN_TANK": {
+            "title": "Runtank Pressure",
+            "unit": "PSI",
+            "color": "theme:highlight",
+            "fallback_color": "#3daee9"
+        },
+        "T_RUN_TANK": {
+            "title": "Runtank Temp",
+            "unit": "°C",
+            "color": "theme:neutral",
+            "fallback_color": "#e67e22"
+        },
+        "L_RUN_TANK": {
+            "title": "Runtank Mass",
+            "unit": "lbf",
+            "color": "theme:positive",
+            "fallback_color": "#2ecc71"
+        },
+        "P_N2O_FLOW": {
+            "title": "N2O Flow Pressure",
+            "unit": "PSI",
+            "color": "theme:highlight",
+            "fallback_color": "#3daee9"
+        },
+        "P_N2_FLOW": {
+            "title": "N2 Flow Pressure",
+            "unit": "PSI",
+            "color": "theme:link",
+            "fallback_color": "#3daee9"
+        },
+        "P_COMB_CHMBR": {
+            "title": "Comb Chmbr. Pressure",
+            "unit": "PSI",
+            "color": "theme:neutral",
+            "fallback_color": "#f39c12"
+        },
+        "P_INJECTOR": {
+            "title": "Injector Pressure",
+            "unit": "PSI",
+            "color": "theme:highlight",
+            "fallback_color": "#3daee9"
+        },
+        "T_INJECTOR": {
+            "title": "Injector Temp",
+            "unit": "°C",
+            "color": "theme:neutral",
+            "fallback_color": "#e67e22"
+        },
+        "T_COMB_CHMBR": {
+            "title": "Comb Chmbr. Temp",
+            "unit": "°C",
+            "color": "theme:negative",
+            "fallback_color": "#e74c3c"
+        },
+        "T_POST_COMB": {
+            "title": "Post Comb. Temp",
+            "unit": "°C",
+            "color": "theme:negative",
+            "fallback_color": "#e74c3c"
+        },
+        "L_THRUST": {
+            "title": "Thrust",
+            "unit": "lbf",
+            "color": "theme:positive",
+            "fallback_color": "#2ecc71"
+        }
+    },
+    "default_cards": [
+        {
+            "title": "Runtank Pressure",
+            "channelKey": "P_RUN_TANK",
+            "xAxisLabel": "Time (s)",
+            "yAxisLabel": "PSI",
+            "accentColor": "theme:highlight",
+            "autoScale": true,
+            "manualMinY": 0.0,
+            "manualMaxY": 1000.0,
+            "minYRange": 10.0,
+            "filterOutliers3Std": false,
+            "smoothingWindow": 1,
+            "maxBuckets": 300,
+            "showGrid": true,
+            "showFill": true,
+            "colSpan": 2,
+            "cardHeight": 230
+        },
+        {
+            "title": "Runtank Temp",
+            "channelKey": "T_RUN_TANK",
+            "xAxisLabel": "Time (s)",
+            "yAxisLabel": "°C",
+            "accentColor": "theme:neutral",
+            "autoScale": true,
+            "manualMinY": 0.0,
+            "manualMaxY": 100.0,
+            "minYRange": 10.0,
+            "filterOutliers3Std": false,
+            "smoothingWindow": 1,
+            "maxBuckets": 300,
+            "showGrid": true,
+            "showFill": true,
+            "colSpan": 1,
+            "cardHeight": 230
+        },
+        {
+            "title": "Runtank Mass",
+            "channelKey": "L_RUN_TANK",
+            "xAxisLabel": "Time (s)",
+            "yAxisLabel": "lbf",
+            "accentColor": "theme:positive",
+            "autoScale": true,
+            "manualMinY": 0.0,
+            "manualMaxY": 100.0,
+            "minYRange": 1.0,
+            "filterOutliers3Std": false,
+            "smoothingWindow": 1,
+            "maxBuckets": 300,
+            "showGrid": true,
+            "showFill": true,
+            "colSpan": 2,
+            "cardHeight": 230
+        },
+        {
+            "title": "N2O Flow Pressure",
+            "channelKey": "P_N2O_FLOW",
+            "xAxisLabel": "Time (s)",
+            "yAxisLabel": "PSI",
+            "accentColor": "theme:highlight",
+            "autoScale": true,
+            "manualMinY": 0.0,
+            "manualMaxY": 1000.0,
+            "minYRange": 10.0,
+            "filterOutliers3Std": false,
+            "smoothingWindow": 1,
+            "maxBuckets": 300,
+            "showGrid": true,
+            "showFill": true,
+            "colSpan": 1,
+            "cardHeight": 230
+        },
+        {
+            "title": "N2 Flow Pressure",
+            "channelKey": "P_N2_FLOW",
+            "xAxisLabel": "Time (s)",
+            "yAxisLabel": "PSI",
+            "accentColor": "theme:link",
+            "autoScale": true,
+            "manualMinY": 0.0,
+            "manualMaxY": 1000.0,
+            "minYRange": 10.0,
+            "filterOutliers3Std": false,
+            "smoothingWindow": 1,
+            "maxBuckets": 300,
+            "showGrid": true,
+            "showFill": true,
+            "colSpan": 1,
+            "cardHeight": 230
+        },
+        {
+            "title": "Comb Chmbr. Pressure",
+            "channelKey": "P_COMB_CHMBR",
+            "xAxisLabel": "Time (s)",
+            "yAxisLabel": "PSI",
+            "accentColor": "theme:neutral",
+            "autoScale": true,
+            "manualMinY": 0.0,
+            "manualMaxY": 1000.0,
+            "minYRange": 10.0,
+            "filterOutliers3Std": false,
+            "smoothingWindow": 1,
+            "maxBuckets": 300,
+            "showGrid": true,
+            "showFill": true,
+            "colSpan": 1,
+            "cardHeight": 230
+        },
+        {
+            "title": "Injector Pressure",
+            "channelKey": "P_INJECTOR",
+            "xAxisLabel": "Time (s)",
+            "yAxisLabel": "PSI",
+            "accentColor": "theme:highlight",
+            "autoScale": true,
+            "manualMinY": 0.0,
+            "manualMaxY": 1000.0,
+            "minYRange": 10.0,
+            "filterOutliers3Std": false,
+            "smoothingWindow": 1,
+            "maxBuckets": 300,
+            "showGrid": true,
+            "showFill": true,
+            "colSpan": 1,
+            "cardHeight": 230
+        },
+        {
+            "title": "Injector Temp",
+            "channelKey": "T_INJECTOR",
+            "xAxisLabel": "Time (s)",
+            "yAxisLabel": "°C",
+            "accentColor": "theme:neutral",
+            "autoScale": true,
+            "manualMinY": 0.0,
+            "manualMaxY": 200.0,
+            "minYRange": 10.0,
+            "filterOutliers3Std": false,
+            "smoothingWindow": 1,
+            "maxBuckets": 300,
+            "showGrid": true,
+            "showFill": true,
+            "colSpan": 1,
+            "cardHeight": 230
+        },
+        {
+            "title": "Comb Chmbr. Temp",
+            "channelKey": "T_COMB_CHMBR",
+            "xAxisLabel": "Time (s)",
+            "yAxisLabel": "°C",
+            "accentColor": "theme:negative",
+            "autoScale": true,
+            "manualMinY": 0.0,
+            "manualMaxY": 1000.0,
+            "minYRange": 10.0,
+            "filterOutliers3Std": false,
+            "smoothingWindow": 1,
+            "maxBuckets": 300,
+            "showGrid": true,
+            "showFill": true,
+            "colSpan": 1,
+            "cardHeight": 230
+        },
+        {
+            "title": "Thrust",
+            "channelKey": "L_THRUST",
+            "xAxisLabel": "Time (s)",
+            "yAxisLabel": "lbf",
+            "accentColor": "theme:positive",
+            "autoScale": true,
+            "manualMinY": 0.0,
+            "manualMaxY": 1000.0,
+            "minYRange": 10.0,
+            "filterOutliers3Std": false,
+            "smoothingWindow": 1,
+            "maxBuckets": 300,
+            "showGrid": true,
+            "showFill": true,
+            "colSpan": 1,
+            "cardHeight": 230
+        }
+    ]
+}

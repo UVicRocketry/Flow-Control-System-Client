@@ -9,6 +9,7 @@ ColumnLayout {
     id: dashboard
 
     property bool disconnectBannerDismissed: false
+    property string dataSourceMode: fn.dataSourceMode
 
     spacing: Kirigami.Units.largeSpacing
     Component.onDestruction: fn.commitPendingDeletions()
