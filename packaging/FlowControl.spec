@@ -43,7 +43,6 @@ else:
 # ============================================================================
 datas = [
     (str(REPO_ROOT / "contents" / "qml"), "contents/qml"),
-    (str(REPO_ROOT / "contents" / "qmldir"), "contents"),
 ]
 
 if PNG_ICON.exists():
