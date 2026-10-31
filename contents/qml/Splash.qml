@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls as Controls
 import QtQuick.Layouts
 
 Rectangle {
@@ -38,7 +37,7 @@ Rectangle {
             visible: status === Image.Ready
         }
 
-        Controls.Label {
+        Text {
             Layout.alignment: Qt.AlignHCenter
             text: "Flow Control System"
             color: "#eff0f1"
@@ -46,7 +45,7 @@ Rectangle {
             font.bold: true
         }
 
-        Controls.Label {
+        Text {
             Layout.alignment: Qt.AlignHCenter
             text: "UVic Rocketry"
             color: "#7f8c8d"
@@ -57,7 +56,7 @@ Rectangle {
             Layout.preferredHeight: 6
         }
 
-        Controls.Label {
+        Text {
             Layout.fillWidth: true
             text: splashRoot.statusText
             color: "#bdc3c7"

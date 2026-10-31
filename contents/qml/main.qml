@@ -9,6 +9,8 @@ import "pages"
 Kirigami.ApplicationWindow {
     id: root
 
+    readonly property var actuatorsPage: actuatorsPageLoader.item ?? actuatorsPageLoader
+    readonly property var graphsPage: graphsPageLoader.item ?? graphsPageLoader
     // Central WebSocket connection shared by all views and components
     property alias webSocket: sharedWebSocket
     property bool userDisconnected: false
@@ -115,20 +117,52 @@ Kirigami.ApplicationWindow {
                 }
 
                 // 1
-                Actuators {
-                    id: actuatorsPage
+                Loader {
+                    id: actuatorsPageLoader
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    asynchronous: true
+                    active: false
+
+                    sourceComponent: Actuators {
+                        id: actuatorsPage
+                    }
+
                 }
 
                 // 2
-                Graphs {
-                    id: graphsPage
+                Loader {
+                    id: graphsPageLoader
 
-                    windowSeconds: sidebarNav.effectiveWindowSeconds
-                    global3StdFilter: sidebarNav.smoothAllActive
-                    editLayoutMode: sidebarNav.editLayoutActive
-                    dataSourceMode: dashboardPage.dataSourceMode
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    asynchronous: true
+                    active: false
+
+                    sourceComponent: Graphs {
+                        id: graphsPage
+
+                        windowSeconds: sidebarNav.effectiveWindowSeconds
+                        global3StdFilter: sidebarNav.smoothAllActive
+                        editLayoutMode: sidebarNav.editLayoutActive
+                        dataSourceMode: dashboardPage.dataSourceMode
+                    }
+
                 }
 
+            }
+
+            Timer {
+                id: warmupTimer
+
+                interval: 400
+                running: true
+                repeat: false
+                onTriggered: {
+                    graphsPageLoader.active = true;
+                    actuatorsPageLoader.active = true;
+                }
             }
 
             // Overlay toast container anchored at bottom-right, floating over page content
@@ -235,12 +269,15 @@ Kirigami.ApplicationWindow {
                 return pages;
             }
             onNavigateRequested: function(pageName) {
-                if (pageName === "dashboard")
+                if (pageName === "dashboard") {
                     contentStack.currentIndex = 0;
-                else if (pageName === "actuators")
+                } else if (pageName === "actuators") {
+                    actuatorsPageLoader.active = true;
                     contentStack.currentIndex = 1;
-                else if (pageName === "graphs")
+                } else if (pageName === "graphs") {
+                    graphsPageLoader.active = true;
                     contentStack.currentIndex = 2;
+                }
             }
             onSettingsRequested: {
                 settingsDialog.open();
