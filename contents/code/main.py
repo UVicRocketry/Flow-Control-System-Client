@@ -9,7 +9,6 @@ import signal
 import sys
 from pathlib import Path
 
-from backend import Backend
 from splash import SplashScreen
 from PySide6.QtGui import QIcon
 from PySide6.QtQml import QQmlApplicationEngine
@@ -174,6 +173,11 @@ def main() -> None:
         if sys.platform == "win32":
             os.environ["QT_QUICK_CONTROLS_STYLE"] = "FluentWinUI3"
 
+    # Enable QML debugger/profiler support if requested
+    if os.environ.get("QML_DEBUG") or any("-qmljsdebugger" in arg for arg in sys.argv):
+        from PySide6.QtQml import QQmlDebuggingEnabler
+        QQmlDebuggingEnabler.enable_debugging(True)
+
     app = QApplication(sys.argv)
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -195,6 +199,8 @@ def main() -> None:
 
     splash.set_status("Initializing backend controller...")
     engine = QQmlApplicationEngine()
+
+    from backend import Backend
     backend = Backend()
     engine.root_context().set_context_property("backend", backend)
 

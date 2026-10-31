@@ -11,6 +11,7 @@ from PySide6.QtQuick import QQuickView
 from PySide6.QtCore import Qt, QUrl, QTimer, QPoint
 from __feature__ import snake_case, true_property
 
+assert snake_case, true_property
 
 class SplashScreen(QQuickView):
     """Lightweight Python controller for the QML Splash.qml window."""
