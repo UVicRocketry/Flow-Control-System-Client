@@ -26,7 +26,7 @@ ColumnLayout {
             dashboard.disconnectBannerDismissed = false;
         }
 
-        function onWebsocketClosed() {
+        function onWebsocket_closed() {
             fn.commitPendingDeletions();
             dashboard.disconnectBannerDismissed = false;
         }

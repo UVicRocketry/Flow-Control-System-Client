@@ -59,9 +59,6 @@ Item {
         return "Disconnected";
     }
 
-    signal messageReceived(string message)
-    signal jsonReceived(var data)
-
     // Methods
     // main websocket connector - can pass either a new URL or leave blank to use current
     function connectSocket(targetUrl) {
@@ -76,8 +73,8 @@ Item {
         var urlToUse = (targetUrl && targetUrl.trim().length > 0) ? targetUrl.trim() : wsRoot.currentUrl;
         urlToUse = urlToUse.trim();
         wsRoot.currentUrl = urlToUse;
-        if (backend && urlToUse.length > 0 && urlToUse !== backend.serverUrl)
-            backend.serverUrl = urlToUse;
+        if (backend && urlToUse.length > 0 && urlToUse !== backend.server_url)
+            backend.server_url = urlToUse;
 
         socket.url = urlToUse;
         socket.active = false;
@@ -178,26 +175,6 @@ Item {
                         backend.info("WebSocket disconnected from " + wsRoot.socket.url);
                     else
                         backend.warn("WebSocket connection closed (" + wsRoot.socket.url + ")");
-                }
-            }
-        }
-
-        function onTextMessageReceived(message) {
-            if (!compact)
-                return ;
-
-            wsRoot.messageReceived(message);
-            var lines = String(message).split("\n");
-            for (var i = 0; i < lines.length; ++i) {
-                var line = lines[i].trim();
-                if (line.length === 0)
-                    continue;
-
-                try {
-                    let data = JSON.parse(line);
-                    wsRoot.jsonReceived(data);
-                } catch (e) {
-                    backend.warn("Received malformed non-JSON WebSocket payload: " + line);
                 }
             }
         }

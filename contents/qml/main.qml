@@ -15,8 +15,6 @@ Kirigami.ApplicationWindow {
     property alias webSocket: sharedWebSocket
     property bool userDisconnected: false
 
-    signal webSocketMessageReceived(var data)
-
     function sendTextMessage(message) {
         if (sharedWebSocket && sharedWebSocket.status === WebSocket.Open)
             sharedWebSocket.sendTextMessage(message);
@@ -52,12 +50,6 @@ Kirigami.ApplicationWindow {
         onTextMessageReceived: function(message) {
             if (typeof backend !== "undefined" && backend && typeof backend.ingest_ws_message === "function")
                 backend.ingest_ws_message(message);
-
-            try {
-                let data = JSON.parse(message);
-                root.webSocketMessageReceived(data);
-            } catch (e) {
-            }
         }
     }
 

@@ -71,11 +71,14 @@ class Backend(QtCore.QObject):
     valves_changed = QtCore.Signal()
     valve_state_updated = QtCore.Signal(str, str)
     ws_send_requested = QtCore.Signal(str)
+    disconnected = QtCore.Signal()
+    websocket_closed = QtCore.Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._config_data = {}
         self._armed = False
+        self._ws_connected = False
         self._valve_definitions = []
         self._valves = {}
         self._known_channels = {}
@@ -360,9 +363,15 @@ class Backend(QtCore.QObject):
 
     @QtCore.Slot(bool)
     def on_ws_connected_changed(self, connected: bool):
-        """Disarms system and resets safety state when WebSocket disconnects."""
+        """Disarms system and emits disconnect signals on True -> False transitions."""
+        connected = bool(connected)
+        was_connected = self._ws_connected
+        self._ws_connected = connected
         if not connected:
             self.set_armed(False)
+            if was_connected:
+                self.disconnected.emit()
+                self.websocket_closed.emit()
 
     @QtCore.Slot(str, str)
     def actuate_valve(self, valve_id: str, action: str):
