@@ -15,6 +15,7 @@ ColumnLayout {
     property int customWindowSeconds: 45
     property bool smoothAllActive: false
     property bool editLayoutActive: false
+    property bool keybindsEnabled: false
     readonly property real effectiveWindowSeconds: {
         if (timeScalePreset === "30s")
             return 30;
@@ -32,6 +33,7 @@ ColumnLayout {
     signal settingsRequested()
     signal notificationsRequested()
     signal timeScaleChanged(real seconds)
+    signal abortRequested()
 
     // returns true whenever the specified page is currently visible on screen
     function isPageVisible(pageName) {
@@ -67,6 +69,11 @@ ColumnLayout {
 
     ActuatorsViewHelper {
         visible: root.isPageVisible("actuators")
+        keybindsEnabled: root.keybindsEnabled
+        onAbortRequested: root.abortRequested()
+        onKeybindsToggled: function(enabled) {
+            root.keybindsEnabled = enabled;
+        }
     }
 
     GraphsViewHelper {

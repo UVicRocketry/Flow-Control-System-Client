@@ -44,6 +44,11 @@ Kirigami.ApplicationWindow {
 
         url: backend ? backend.server_url : "ws://127.0.0.1:8080/ws"
         active: false
+        onStatusChanged: function(status) {
+            if (typeof backend !== "undefined" && backend && typeof backend.on_ws_connected_changed === "function")
+                backend.on_ws_connected_changed(status === WebSocket.Open);
+
+        }
         onTextMessageReceived: function(message) {
             if (typeof backend !== "undefined" && backend && typeof backend.ingest_ws_message === "function")
                 backend.ingest_ws_message(message);
@@ -94,9 +99,51 @@ Kirigami.ApplicationWindow {
             Kirigami.Action {
                 text: "Connection"
 
-                displayComponent: Websocket {
-                    compact: true
-                    Layout.rightMargin: Kirigami.Units.gridUnit / 2
+                displayComponent: RowLayout {
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Rectangle {
+                        id: armedBadge
+
+                        readonly property bool armed: backend ? backend.armed : false
+                        readonly property color statusColor: armed ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.positiveTextColor
+
+                        visible: sharedWebSocket.status === WebSocket.Open
+                        Layout.preferredWidth: armedRow.implicitWidth + Kirigami.Units.largeSpacing
+                        Layout.preferredHeight: armedRow.implicitHeight + Kirigami.Units.smallSpacing
+                        radius: 4
+                        color: Qt.rgba(statusColor.r, statusColor.g, statusColor.b, 0.15)
+                        border.width: 1
+                        border.color: statusColor
+
+                        RowLayout {
+                            id: armedRow
+
+                            anchors.centerIn: parent
+                            spacing: Kirigami.Units.smallSpacing
+
+                            Rectangle {
+                                Layout.preferredWidth: 8
+                                Layout.preferredHeight: 8
+                                radius: 4
+                                color: armedBadge.statusColor
+                            }
+
+                            Controls.Label {
+                                text: armedBadge.armed ? "SYSTEM ARMED" : "SYSTEM SAFE"
+                                font.bold: true
+                                color: armedBadge.statusColor
+                            }
+
+                        }
+
+                    }
+
+                    Websocket {
+                        compact: true
+                        Layout.rightMargin: Kirigami.Units.gridUnit / 2
+                    }
+
                 }
 
             }
@@ -127,6 +174,9 @@ Kirigami.ApplicationWindow {
 
                     sourceComponent: Actuators {
                         id: actuatorsPage
+
+                        keybindsEnabled: sidebarNav.keybindsEnabled
+                        isWebsocketConnected: sharedWebSocket.status === WebSocket.Open
                     }
 
                 }
@@ -212,6 +262,19 @@ Kirigami.ApplicationWindow {
             standardButtons: Kirigami.Dialog.Close
         }
 
+        Kirigami.PromptDialog {
+            id: abortConfirmDialog
+
+            title: "Confirm Emergency Abort"
+            subtitle: "Execute EMERGENCY ABORT? All fill valves will close and dump/vent valves will open."
+            standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
+            onAccepted: {
+                if (backend)
+                    backend.abort();
+
+            }
+        }
+
         Connections {
             function onLog_sent(level: string, msg: string) {
                 let now = new Date();
@@ -229,6 +292,10 @@ Kirigami.ApplicationWindow {
                 notificationModel.unreadCount++;
                 // 2. Display overlay toast
                 logToaster.showToast(level, msg);
+            }
+
+            function onWs_send_requested(payload: string) {
+                root.sendTextMessage(payload);
             }
 
             target: backend
@@ -285,6 +352,9 @@ Kirigami.ApplicationWindow {
             onNotificationsRequested: {
                 notificationTray.open();
                 notificationModel.unreadCount = 0;
+            }
+            onAbortRequested: {
+                abortConfirmDialog.open();
             }
         }
 

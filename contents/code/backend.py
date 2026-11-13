@@ -4,6 +4,7 @@ Flow Control Client - Backend Controller
 provides QObject bridge between PySide6/QML and configuration/telemetry helpers.
 """
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -66,10 +67,17 @@ class Backend(QtCore.QObject):
     telemetry_changed = QtCore.Signal()
     telemetry_point_received = QtCore.Signal("QVariantMap")
     channels_changed = QtCore.Signal()
+    armed_changed = QtCore.Signal(bool)
+    valves_changed = QtCore.Signal()
+    valve_state_updated = QtCore.Signal(str, str)
+    ws_send_requested = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._config_data = {}
+        self._armed = False
+        self._valve_definitions = []
+        self._valves = {}
         self._known_channels = {}
         self._default_graph_cards = []
         self._live_records = []
@@ -205,6 +213,7 @@ class Backend(QtCore.QObject):
     def load_config(self) -> dict:
         """loads configuration from CONFIG_FILE via config_manager."""
         self._config_data = read_app_config(self.log_error)
+        self._seed_valves_from_config()
         self.config_changed.emit()
         self.server_url_changed.emit(self.server_url)
         self.auto_reconnect_changed.emit(self.auto_reconnect)
@@ -288,11 +297,175 @@ class Backend(QtCore.QObject):
     def get_channel_meta(self, channel: str) -> dict:
         return format_channel_meta(self._known_channels, channel)
 
+    # actuator & safety state
+
+    @staticmethod
+    def _normalize_valve_state(state: str) -> str:
+        s = str(state).strip().upper()
+        aliases = {
+            "CLOSE": "CLOSED",
+            "TRANSIT": "ACTUATING",
+            "FILLING": "FILL",
+            "VENTING": "VENT",
+        }
+        return aliases.get(s, s)
+
+    def _seed_valves_from_config(self):
+        defs = self._config_data.get("actuators") or self._config_data.get("valves")
+        if isinstance(defs, list) and defs:
+            self._apply_actuator_definitions(defs)
+
+    def _apply_actuator_definitions(self, definitions: list):
+        valid_defs = [dict(item) for item in definitions if isinstance(item, dict) and item.get("id")]
+        self._valve_definitions = valid_defs
+        seeded = {}
+        for item in valid_defs:
+            vid = item["id"]
+            seeded[vid] = self._valves.get(
+                vid,
+                self._normalize_valve_state(item.get("normal_state", "CLOSED")),
+            )
+        self._valves = seeded
+        self.config_changed.emit()
+        self.valves_changed.emit()
+
+    def _get_valve_def(self, valve_id: str) -> dict:
+        for item in self._valve_definitions:
+            if item.get("id") == valve_id:
+                return item
+        return {}
+
+    @QtCore.Property(bool, notify=armed_changed)
+    def armed(self) -> bool:
+        return self._armed
+
+    @armed.setter
+    def armed(self, value: bool):
+        value = bool(value)
+        if self._armed != value:
+            self._armed = value
+            self.armed_changed.emit(value)
+
+    @QtCore.Slot(bool)
+    def set_armed(self, value: bool):
+        self.armed = value
+
+    @QtCore.Property("QVariantList", notify=config_changed)
+    def valve_definitions(self) -> list:
+        return list(self._valve_definitions)
+
+    @QtCore.Property("QVariantMap", notify=valves_changed)
+    def valves(self) -> dict:
+        return dict(self._valves)
+
+    @QtCore.Slot(bool)
+    def on_ws_connected_changed(self, connected: bool):
+        """Disarms system and resets safety state when WebSocket disconnects."""
+        if not connected:
+            self.set_armed(False)
+
+    @QtCore.Slot(str, str)
+    def actuate_valve(self, valve_id: str, action: str):
+        """Validates armed/interlock state and emits an outbound valve command."""
+        if not self._armed:
+            self.log_warn(f"Cannot actuate {valve_id}: system is SAFE (disarmed).")
+            return
+
+        vdef = self._get_valve_def(valve_id)
+        if vdef.get("external", False):
+            self.log_warn(f"{valve_id} is externally controlled.")
+            return
+
+        current = self._valves.get(valve_id, "")
+        if vdef.get("single_use", False) and current in ("FIRED", "DISCONNECTED"):
+            self.log_warn(f"{valve_id} is single-use and already {current}.")
+            return
+
+        act = str(action).strip().upper()
+        payload = {
+            "type": "command",
+            "command": "CTRL",
+            "valve": valve_id,
+            "action": act,
+        }
+        self.ws_send_requested.emit(json.dumps(payload))
+
+    @QtCore.Slot()
+    def abort(self):
+        """Sends immediate emergency abort command regardless of armed state."""
+        payload = {"type": "abort", "command": "ABORT"}
+        self.ws_send_requested.emit(json.dumps(payload))
+        self.log_warn("EMERGENCY ABORT command sent.")
+
+    def _apply_valve_state(self, valve_id: str, state: str):
+        norm = self._normalize_valve_state(state)
+        if not valve_id or not norm:
+            return
+        if self._valves.get(valve_id) != norm:
+            self._valves[valve_id] = norm
+            self.valve_state_updated.emit(valve_id, norm)
+            self.valves_changed.emit()
+
+    def _handle_control_message(self, msg: dict):
+        msg_type = msg.get("type")
+        ident = msg.get("identifier")
+
+        # Accept actuator definitions pushed from Flow-Control-System-Server/config/actuators.json
+        actuators_list = msg.get("actuators") or msg.get("valve_definitions")
+        if isinstance(actuators_list, list):
+            self._apply_actuator_definitions(actuators_list)
+
+        if msg_type in ("init", "actuators", "config"):
+            if "armed" in msg:
+                self.set_armed(bool(msg["armed"]))
+            valves_payload = msg.get("valves")
+            if isinstance(valves_payload, list):
+                self._apply_actuator_definitions(valves_payload)
+            elif isinstance(valves_payload, dict):
+                for vid, st in valves_payload.items():
+                    self._valves[vid] = self._normalize_valve_state(st)
+                self.valves_changed.emit()
+            return
+
+        if msg_type in ("valve_state", "summary"):
+            if "valve" in msg and "state" in msg:
+                self._apply_valve_state(msg["valve"], msg["state"])
+            valves_map = msg.get("valves")
+            if isinstance(valves_map, dict):
+                for vid, st in valves_map.items():
+                    self._valves[vid] = self._normalize_valve_state(st)
+                self.valves_changed.emit()
+            return
+
+        if ident == "FEEDBACK":
+            data = msg.get("data", {})
+            if isinstance(data, dict) and "valve" in data and "action" in data:
+                self._apply_valve_state(data["valve"], data["action"])
+            return
+
+        if msg_type == "armed":
+            self.set_armed(bool(msg.get("armed", False)))
+            return
+
+        if msg_type == "alert":
+            self.log(msg.get("level", "WARN"), msg.get("message", ""))
+
     # live WebSocket telemetry ingestion & file loading
 
     @QtCore.Slot(str)
     def ingest_ws_message(self, raw_message: str):
-        """ingests incoming WebSocket JSON / JSONL frames into live telemetry storage."""
+        """ingests incoming WebSocket JSON / JSONL frames into control state and live telemetry."""
+        for line in raw_message.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                parsed = json.loads(stripped)
+            except ValueError:
+                continue
+            if isinstance(parsed, dict):
+                self._handle_control_message(parsed)
+
         new_channels, ingested_records, self._live_t0, self._latest_telemetry = (
             ingest_ws_telemetry_frames(
                 raw_message,
