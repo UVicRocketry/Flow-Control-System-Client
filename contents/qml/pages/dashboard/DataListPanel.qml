@@ -20,6 +20,7 @@ ColumnLayout {
     signal undoDeleteRequested(string name)
     signal renameRequested(string name)
     signal deleteRequested(string name)
+    signal hideRequested(string name)
 
     function isMarked(name, section) {
         var mode = section || root.effectiveDataMode;
@@ -66,7 +67,7 @@ ColumnLayout {
                 model: {
                     var query = searchField.text.toLowerCase();
                     var items = [];
-                    if (Array.isArray(root.externalDataList)) {
+                    if (root.effectiveDataMode === "local" && Array.isArray(root.externalDataList)) {
                         for (var i = 0; i < root.externalDataList.length; i++) {
                             var extItem = String(root.externalDataList[i]);
                             if (query === "" || extItem.toLowerCase().indexOf(query) !== -1) {
@@ -214,6 +215,15 @@ ColumnLayout {
                             visible: !dataDelegate.markedDeleted && (dataDelegate.hovered || dataDelegate.highlighted)
                             spacing: Kirigami.Units.smallSpacing
                             Layout.fillHeight: true
+
+                            Controls.ToolButton {
+                                visible: dataDelegate.itemSection === "external"
+                                icon.name: "view-hidden"
+                                display: Controls.AbstractButton.IconOnly
+                                Controls.ToolTip.visible: hovered
+                                Controls.ToolTip.text: "Hide external data"
+                                onClicked: root.hideRequested(dataDelegate.itemName)
+                            }
 
                             Controls.ToolButton {
                                 icon.name: "edit-rename"

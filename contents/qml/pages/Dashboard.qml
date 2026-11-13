@@ -130,6 +130,9 @@ ColumnLayout {
                         fn.targetActionData = name;
                         dataDialogs.openDeleteConfirm();
                     }
+                    onHideRequested: function(name) {
+                        fn.hideExternalData(name);
+                    }
                 }
 
                 Kirigami.Separator {
@@ -149,6 +152,7 @@ ColumnLayout {
                     }
                     // onLoadDataRequested: fn.loadSelectedData()
                     onOpenDataRequested: fn.openSelectedData()
+                    onDownloadDataRequested: fn.downloadSelectedData()
                     onDeleteDataRequested: {
                         fn.targetActionData = fn.selectedDataName;
                         dataDialogs.openDeleteConfirm();

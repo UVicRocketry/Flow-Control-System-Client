@@ -152,6 +152,8 @@ def resolve_data_file(target: str, known_channels: dict) -> Path:
     p = Path(target)
     if p.exists() and p.is_file():
         return p
+    if p.is_absolute():
+        raise FileNotFoundError(f"File not found: {target}")
 
     candidates = [
         CONFIG_DIR / "data" / p.name,
@@ -315,9 +317,78 @@ def parse_telemetry_file(resolved_path: Path) -> tuple[list, list, list]:
     return records, raw_seconds, discovered_cols
 
 
+def list_local_data_files() -> list[str]:
+    """
+    scans CONFIG_DIR / 'data' for telemetry files (.csv, .jsonl, .bin)
+    and returns their filenames sorted newest-first (then alphabetically).
+    """
+    data_dir = CONFIG_DIR / "data"
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return []
+
+    allowed_exts = {".csv", ".jsonl", ".bin"}
+    entries = []
+    for p in data_dir.iterdir():
+        if p.is_file() and p.suffix.lower() in allowed_exts:
+            try:
+                mtime = p.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            entries.append((mtime, p.name))
+
+    entries.sort(key=lambda item: (-item[0], item[1]))
+    return [name for _, name in entries]
+
+
+def rename_data_file(mode: str, old_name: str, new_name: str) -> Path:
+    """renames a local or external telemetry file on disk and returns the new Path."""
+    new_clean = Path(new_name.strip()).name
+    if not new_clean:
+        raise ValueError("New filename cannot be empty.")
+
+    if mode == "local":
+        src = CONFIG_DIR / "data" / Path(old_name).name
+    else:
+        src = Path(old_name)
+
+    if not src.exists():
+        raise FileNotFoundError(f"Source file not found: {src}")
+
+    if Path(new_clean).suffix == "" and src.suffix:
+        new_clean = new_clean + src.suffix
+
+    dst = src.with_name(new_clean)
+    if dst.exists() and dst != src:
+        raise FileExistsError(f"Target file already exists: {dst.name}")
+
+    src.rename(dst)
+    return dst
+
+
+def delete_data_file(mode: str, filename: str) -> Path:
+    """deletes a local or external telemetry file from disk and returns the deleted Path."""
+    if mode == "local":
+        target = CONFIG_DIR / "data" / Path(filename).name
+    else:
+        target = Path(filename)
+
+    if not target.exists():
+        raise FileNotFoundError(f"File not found: {target}")
+
+    target.unlink()
+    return target
+
+
 def reveal_in_file_browser(url: str, log_info_fn=None, log_warn_fn=None) -> None:
     """reveals the target file in the native OS file manager."""
-    target_file = Path(url).resolve()
+    candidate = Path(url)
+    if not candidate.exists():
+        local_candidate = CONFIG_DIR / "data" / candidate.name
+        if local_candidate.exists():
+            candidate = local_candidate
+    target_file = candidate.resolve()
     target_dir = target_file.parent
     try:
         if sys.platform.startswith("linux"):

@@ -25,7 +25,13 @@ QtObject {
     }
     readonly property string effectiveDataMode: dataSourceMode === "live" ? lastHistoryMode : dataSourceMode
     readonly property var externalDataList: {
-        return externalRawList.filter(function(item) {
+        var rawExt = externalRawList;
+        if (typeof backend !== "undefined" && backend !== null) {
+            var extArr = toJsArray(backend.external_data !== undefined ? backend.external_data : backend.externalData);
+            if (extArr !== null)
+                rawExt = extArr;
+        }
+        return rawExt.filter(function(item) {
             return item !== null && item !== undefined && String(item).trim() !== "";
         }).map(function(item) {
             var strItem = String(item);
@@ -36,17 +42,18 @@ QtObject {
     readonly property var activeDataList: {
         var rawList = [];
         if (effectiveDataMode === "local") {
-            if (typeof backend !== "undefined" && backend !== null && Array.isArray(backend.localData))
-                rawList = backend.localData;
+            var localArr = (typeof backend !== "undefined" && backend !== null) ? toJsArray(backend.local_data !== undefined ? backend.local_data : backend.localData) : null;
+            if (localArr !== null)
+                rawList = localArr;
             else
                 rawList = ["run_2026_10_19_coldflow.csv", "run_2026_10_18_leakcheck.csv", "telemetry_dump_04.bin", "run_2026_10_12_purge.csv"];
         } else {
-            if (!isWebsocketConnected)
+            if (!isWebsocketConnected) {
                 rawList = [];
-            else if (typeof backend !== "undefined" && backend !== null && Array.isArray(backend.remoteData))
-                rawList = backend.remoteData;
-            else
-                rawList = [];
+            } else {
+                var remoteArr = (typeof backend !== "undefined" && backend !== null) ? toJsArray(backend.remote_data !== undefined ? backend.remote_data : backend.remoteData) : null;
+                rawList = remoteArr !== null ? remoteArr : [];
+            }
         }
         return rawList.filter(function(item) {
             return item !== null && item !== undefined && String(item).trim() !== "";
@@ -58,6 +65,15 @@ QtObject {
     }
 
     // --- Helper Functions ---
+    function toJsArray(val) {
+        if (val === null || val === undefined || typeof val === "string" || typeof val.length !== "number")
+            return null;
+
+        var out = [];
+        for (var i = 0; i < val.length; i++)
+            out.push(val[i]);
+        return out;
+    }
     function dataKey(mode, name) {
         return mode + ":" + name;
     }
@@ -118,19 +134,30 @@ QtObject {
 
     function applyRename(oldName, newName) {
         var mode = dataModeFor(oldName);
-        let next = Object.assign({
-        }, renamedDataMap);
-        next[dataKey(mode, oldName)] = newName;
-        renamedDataMap = next;
+        var hasBackendRename = (typeof backend !== "undefined" && backend !== null && backend.rename_data !== undefined);
+        if (hasBackendRename) {
+            if (!backend.rename_data(mode, oldName, newName))
+                return ;
+        }
+        if (!hasBackendRename || mode === "external") {
+            let next = Object.assign({
+            }, renamedDataMap);
+            next[dataKey(mode, oldName)] = newName;
+            renamedDataMap = next;
+        }
         if (selectedDataName === oldName)
             selectedDataName = newName;
 
         if (loadedDataName === oldName)
             loadedDataName = newName;
+    }
 
-        if (typeof backend !== "undefined" && backend !== null && backend.rename_data !== undefined)
-            backend.rename_data(mode, oldName, newName);
+    function downloadSelectedData() {
+        if (!selectedDataName)
+            return ;
 
+        if (typeof backend !== "undefined" && backend !== null && backend.download_remote_data !== undefined)
+            backend.download_remote_data(selectedDataName);
     }
 
     function refreshData(mode) {
@@ -143,12 +170,32 @@ QtObject {
             backend.refresh_remote_data();
     }
 
+    function hideExternalData(name) {
+        if (!name)
+            return ;
+
+        if (typeof backend !== "undefined" && backend !== null && backend.hide_external_data !== undefined)
+            backend.hide_external_data(name);
+
+        var idx = externalRawList.indexOf(name);
+        if (idx !== -1) {
+            var nextExt = externalRawList.slice();
+            nextExt.splice(idx, 1);
+            externalRawList = nextExt;
+        }
+        if (selectedDataName === name)
+            selectedDataName = "";
+    }
+
     function onLoad_data(mode, filePath, data) {
         if (!filePath)
             return ;
 
         var resolvedMode = mode || dataModeFor(filePath);
         if (resolvedMode === "external") {
+            if (typeof backend !== "undefined" && backend !== null && backend.add_external_data !== undefined)
+                backend.add_external_data(filePath);
+
             if (externalRawList.indexOf(filePath) === -1 && externalDataList.indexOf(filePath) === -1) {
                 var nextExt = externalRawList.slice();
                 nextExt.unshift(filePath);
