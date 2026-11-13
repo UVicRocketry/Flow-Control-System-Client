@@ -48,7 +48,9 @@ DEFAULT_ICONS = [
     "search",
     "search-symbolic",
     "notifications",
-    "keyframe-record"
+    "keyframe-record",
+    "view-hidden",
+    "process-stop",
 ]
 
 SEARCH_THEMES = [
