@@ -211,6 +211,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: release_artifacts
+          skip-decompress: true
       - name: Inspect downloaded artifacts
         run: ls -R release_artifacts
       - name: Publish Release with Assets
