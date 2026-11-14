@@ -1,7 +1,7 @@
 # This Python file uses the following encoding: utf-8
 """
-Flow Control Client - Telemetry File I/O & Demo Generation
-handles resolving data file paths, generating synthetic demo logs,
+Flow Control Client - Telemetry File I/O
+handles resolving data file paths,
 parsing .csv / .jsonl telemetry files, and revealing files in the OS browser.
 """
 
