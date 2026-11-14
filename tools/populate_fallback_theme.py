@@ -51,6 +51,7 @@ DEFAULT_ICONS = [
     "keyframe-record",
     "view-hidden",
     "process-stop",
+    "camera-video"
 ]
 
 SEARCH_THEMES = [
