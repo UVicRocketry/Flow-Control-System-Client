@@ -17,6 +17,7 @@ ListView {
             for (let i = 0; i < root.visiblePages.length; ++i) {
                 if (root.visiblePages[i] === pageName)
                     return true;
+
             }
             return false;
         }
@@ -54,6 +55,13 @@ ListView {
             name: "Graphs"
             icon: "utilities-system-monitor"
             page: "graphs"
+        }
+
+        ListElement {
+            category: "Views"
+            name: "Video"
+            icon: "camera-video"
+            page: "video"
         }
 
     }

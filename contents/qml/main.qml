@@ -12,6 +12,7 @@ Kirigami.ApplicationWindow {
 
     readonly property var actuatorsPage: actuatorsPageLoader.item ?? actuatorsPageLoader
     readonly property var graphsPage: graphsPageLoader.item ?? graphsPageLoader
+    readonly property var videoPage: videoPageLoader.item ?? videoPageLoader
     // Central WebSocket connection shared by all views and components
     property alias webSocket: sharedWebSocket
     property bool userDisconnected: false
@@ -214,6 +215,21 @@ Kirigami.ApplicationWindow {
 
                 }
 
+                // 3
+                Loader {
+                    id: videoPageLoader
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    asynchronous: true
+                    active: false
+
+                    sourceComponent: Video {
+                        id: videoPage
+                    }
+
+                }
+
             }
 
             Timer {
@@ -225,6 +241,7 @@ Kirigami.ApplicationWindow {
                 onTriggered: {
                     graphsPageLoader.active = true;
                     actuatorsPageLoader.active = true;
+                    videoPageLoader.active = true;
                 }
             }
 
@@ -393,6 +410,9 @@ Kirigami.ApplicationWindow {
                 if (graphsPage.visible)
                     pages.push("graphs");
 
+                if (videoPage.visible)
+                    pages.push("video");
+
                 return pages;
             }
             onNavigateRequested: function(pageName) {
@@ -404,6 +424,9 @@ Kirigami.ApplicationWindow {
                 } else if (pageName === "graphs") {
                     graphsPageLoader.active = true;
                     contentStack.currentIndex = 2;
+                } else if (pageName === "video") {
+                    videoPageLoader.active = true;
+                    contentStack.currentIndex = 3;
                 }
             }
             onSettingsRequested: {
