@@ -4,5 +4,8 @@
         "auto_reconnect": false,
         "reconnect_interval_ms": 2000
     },
-    "external_data": []
+    "external_data": [],
+    "ui": {
+        "view_refresh_hz": 5
+    }
 }

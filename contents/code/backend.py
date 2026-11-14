@@ -37,6 +37,7 @@ from telemetry_series import (
     format_channel_meta,
     ingest_ws_telemetry_frames,
     list_available_channels,
+    query_batch_channels,
     query_channel_series,
     register_channel_if_missing,
 )
@@ -109,6 +110,7 @@ class Backend(QtCore.QObject):
     websocket_closed = QtCore.Signal()
     recording_changed = QtCore.Signal(bool)
     server_recording_active_on_connect = QtCore.Signal(str)
+    view_refresh_hz_changed = QtCore.Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -131,6 +133,13 @@ class Backend(QtCore.QObject):
         self._live_records = []
         self._live_seconds = []
         self._live_t0 = None
+        self._telemetry_ui_dirty = False
+        self._last_telemetry_emit_ts = 0.0
+        self._telemetry_ui_timer = QtCore.QTimer(self)
+        self._telemetry_ui_timer.single_shot = True
+        self._telemetry_ui_timer.timeout.connect(
+            self._flush_telemetry_ui_update
+        )
         self.load_graphs_config()
         self._latest_telemetry = {
             "seconds": 0.0,
@@ -259,6 +268,22 @@ class Backend(QtCore.QObject):
             self.save_config(self._config_data)
             self.reconnect_interval_ms_changed.emit(interval)
 
+    @QtCore.Property(int, notify=view_refresh_hz_changed)
+    def view_refresh_hz(self) -> int:
+        ui_sec = self._config_data.get("ui", {})
+        return max(1, min(120, int(ui_sec.get("view_refresh_hz", 20))))
+
+    @view_refresh_hz.setter
+    def view_refresh_hz(self, hz: int):
+        hz = max(1, min(120, int(hz)))
+        if "ui" not in self._config_data:
+            self._config_data["ui"] = {}
+        curr = self._config_data["ui"].get("view_refresh_hz")
+        if curr != hz:
+            self._config_data["ui"]["view_refresh_hz"] = hz
+            self.save_config(self._config_data)
+            self.view_refresh_hz_changed.emit(hz)
+
     @QtCore.Slot(result="QVariantMap")
     def load_config(self) -> dict:
         """loads configuration from CONFIG_FILE via config_manager."""
@@ -268,6 +293,7 @@ class Backend(QtCore.QObject):
         self.server_url_changed.emit(self.server_url)
         self.auto_reconnect_changed.emit(self.auto_reconnect)
         self.reconnect_interval_ms_changed.emit(self.reconnect_interval_ms)
+        self.view_refresh_hz_changed.emit(self.view_refresh_hz)
         self.external_data_changed.emit()
         return self._config_data
 
@@ -301,6 +327,10 @@ class Backend(QtCore.QObject):
     @QtCore.Slot(int)
     def set_reconnect_interval_ms(self, interval: int):
         self.reconnect_interval_ms = interval
+
+    @QtCore.Slot(int)
+    def set_view_refresh_hz(self, hz: int):
+        self.view_refresh_hz = hz
 
     @QtCore.Slot()
     def connect_to_server(self):
@@ -918,6 +948,23 @@ class Backend(QtCore.QObject):
             self.log_error(f"Failed writing to recording CSV: {err}")
             self.set_recording(False)
 
+    def _flush_telemetry_ui_update(self):
+        if self._telemetry_ui_dirty:
+            self._telemetry_ui_dirty = False
+            self._last_telemetry_emit_ts = time.monotonic()
+            self.telemetry_changed.emit()
+
+    def _schedule_telemetry_ui_update(self):
+        self._telemetry_ui_dirty = True
+        interval_s = 1.0 / float(max(1, self.view_refresh_hz))
+        now = time.monotonic()
+        elapsed = now - self._last_telemetry_emit_ts
+        if elapsed >= interval_s and not self._telemetry_ui_timer.active:
+            self._flush_telemetry_ui_update()
+        elif not self._telemetry_ui_timer.active:
+            wait_ms = max(8, int((interval_s - elapsed) * 1000.0))
+            self._telemetry_ui_timer.start(wait_ms)
+
     @QtCore.Slot(str)
     def ingest_ws_message(self, raw_message: str):
         """ingests incoming WebSocket frames into control and telemetry."""
@@ -942,12 +989,10 @@ class Backend(QtCore.QObject):
         )
         new_channels, ingested, self._live_t0, self._latest_telemetry = res
         self._append_to_active_recording(ingested)
-        for rec in ingested:
-            self.telemetry_point_received.emit(rec)
         if new_channels:
             self.channels_changed.emit()
         if ingested:
-            self.telemetry_changed.emit()
+            self._schedule_telemetry_ui_update()
 
     def _apply_parsed_telemetry(
         self,
@@ -1113,6 +1158,18 @@ class Backend(QtCore.QObject):
             filter_outliers_3std=filter_outliers_3std,
             smoothing_window=smoothing_window,
         )
+
+    @QtCore.Slot(str, "QVariantList", result="QVariantMap")
+    def get_batch_channel_data(
+        self, source_mode: str, requests: list
+    ) -> dict:
+        """returns windowed series for all GraphCards in one batched call."""
+        use_loaded = source_mode != "live"
+        records = self._loaded_records if use_loaded else self._live_records
+        seconds_list = (
+            self._loaded_seconds if use_loaded else self._live_seconds
+        )
+        return query_batch_channels(records, seconds_list, requests)
 
     @QtCore.Slot(str, result=str)
     @QtCore.Slot(result=str)

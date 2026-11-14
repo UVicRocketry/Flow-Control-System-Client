@@ -8,6 +8,7 @@ Kirigami.Dialog {
     id: root
 
     property string minLogLevel: "INFO"
+    readonly property var refreshHzValues: [5, 10, 20, 30, 60]
 
     signal minLogLevelUpdated(string level)
     signal autoConnectToggled(bool enabled)
@@ -23,6 +24,9 @@ Kirigami.Dialog {
         var levels = ["INFO", "WARN", "ERR"];
         var idx = levels.indexOf(root.minLogLevel);
         logLevelCombo.currentIndex = idx >= 0 ? idx : 0;
+        var currentHz = (typeof backend !== "undefined" && backend) ? backend.view_refresh_hz : 20;
+        var hzIdx = root.refreshHzValues.indexOf(currentHz);
+        refreshHzCombo.currentIndex = hzIdx >= 0 ? hzIdx : 2;
     }
     onAccepted: {
         var levels = ["INFO", "WARN", "ERR"];
@@ -35,6 +39,9 @@ Kirigami.Dialog {
 
             backend.set_auto_reconnect(autoConnectCheck.checked);
             backend.set_reconnect_interval_ms(reconnectSpin.value);
+            if (refreshHzCombo.currentIndex >= 0 && refreshHzCombo.currentIndex < root.refreshHzValues.length)
+                backend.set_view_refresh_hz(root.refreshHzValues[refreshHzCombo.currentIndex]);
+
         }
         root.autoConnectToggled(autoConnectCheck.checked);
     }
@@ -56,6 +63,24 @@ Kirigami.Dialog {
 
                 Layout.fillWidth: true
                 model: ["INFO — All notifications", "WARN — Warnings & errors only", "ERR — Critical errors only"]
+            }
+
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 4
+
+            Controls.Label {
+                text: "Plot Refresh Frequency"
+                font.bold: true
+            }
+
+            Controls.ComboBox {
+                id: refreshHzCombo
+
+                Layout.fillWidth: true
+                model: ["5 Hz (Low CPU)", "10 Hz", "20 Hz (Default)", "30 Hz", "60 Hz"]
             }
 
         }

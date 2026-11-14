@@ -129,23 +129,50 @@ def ingest_ws_telemetry_frames(
     return new_channels, ingested_records, live_t0, latest_telemetry
 
 
-def query_channel_series(
-    records: list,
-    seconds_list: list,
+def _compute_window_bounds(
+    seconds_list: list, t_start: float, t_end: float
+) -> tuple[float, float]:
+    """
+    computes (win_start, win_end) for a query.
+    in live/preset mode (t_end <= 0), locks (win_end - win_start) to the full
+    chosen window_sec so the X-axis never autoscales or stretches as data arrives.
+    """
+    if not seconds_list:
+        if t_end <= 0.0:
+            w = abs(t_start) if (t_start != 0.0 and abs(t_start) < 99999.0) else 30.0
+            return 0.0, w
+        return min(t_start, t_end), max(min(t_start, t_end) + 1.0, max(t_start, t_end))
+
+    dataset_min_t = seconds_list[0]
+    dataset_max_t = seconds_list[-1]
+
+    if t_end <= 0.0:
+        window_sec = abs(t_start) if t_start != 0.0 else 30.0
+        if window_sec >= 99999.0:
+            win_start = dataset_min_t
+            win_end = max(dataset_min_t + 30.0, dataset_max_t)
+        else:
+            win_end = dataset_max_t
+            win_start = win_end - window_sec
+    else:
+        win_start = max(dataset_min_t, min(t_start, t_end))
+        win_end = min(dataset_max_t, max(t_start, t_end))
+        if win_end <= win_start:
+            win_end = win_start + 1.0
+
+    return win_start, win_end
+
+
+def _series_from_sliced_records(
+    sliced: list,
     channel: str,
-    t_start: float,
-    t_end: float,
+    win_start: float,
+    win_end: float,
     max_buckets: int = 300,
     filter_outliers_3std: bool = False,
     smoothing_window: int = 1,
 ) -> dict:
-    """
-    computes windowed, optionally 3-std outlier-filtered, bucket-downsampled,
-    and moving-average smoothed time-series points for a given channel.
-    - when t_end <= 0: treats abs(t_start) as a trailing window duration in seconds
-      ending at the most recent sample in seconds_list.
-    - when t_end > 0: slices the explicit [t_start, t_end] interval.
-    """
+    """computes a single channel's downsampled & smoothed series from a pre-sliced window."""
     empty_res = {
         "points": [],
         "min": 0.0,
@@ -156,31 +183,11 @@ def query_channel_series(
         "rawCount": 0,
         "filteredCount": 0,
         "bucketCount": 0,
-        "tMin": 0.0,
-        "tMax": 30.0,
+        "tMin": win_start,
+        "tMax": max(win_start + 1e-3, win_end),
     }
-    if not records or not seconds_list or not channel:
+    if not sliced or not channel:
         return empty_res
-
-    dataset_min_t = seconds_list[0]
-    dataset_max_t = seconds_list[-1]
-
-    if t_end <= 0.0:
-        # preset window mode: t_start holds negative window_seconds (e.g. -30, -60, -180)
-        window_sec = abs(t_start) if t_start != 0.0 else 30.0
-        win_end = dataset_max_t
-        if window_sec >= 99999.0:
-            win_start = dataset_min_t
-        else:
-            win_start = max(dataset_min_t, win_end - window_sec)
-    else:
-        win_start = max(dataset_min_t, min(t_start, t_end))
-        win_end = min(dataset_max_t, max(t_start, t_end))
-
-    # binary-search slice indices in O(log N)
-    idx_left = bisect.bisect_left(seconds_list, win_start)
-    idx_right = bisect.bisect_right(seconds_list, win_end)
-    sliced = records[idx_left:idx_right]
 
     raw_pts = []
     for r in sliced:
@@ -190,17 +197,15 @@ def query_channel_series(
 
     raw_n = len(raw_pts)
     if raw_n == 0:
-        empty_res["tMin"] = win_start
-        empty_res["tMax"] = max(win_start + 1.0, win_end)
         return empty_res
 
-    # compute mean and standard deviation across raw windowed points
     sum_v = sum(p[1] for p in raw_pts)
     mean_v = sum_v / raw_n
-    variance = sum((p[1] - mean_v) ** 2 for p in raw_pts) / raw_n if raw_n > 1 else 0.0
+    variance = (
+        sum((p[1] - mean_v) ** 2 for p in raw_pts) / raw_n if raw_n > 1 else 0.0
+    )
     std_v = math.sqrt(variance)
 
-    # 3-standard-deviation outlier removal (drops spikes outside mean +/- 3*std)
     if filter_outliers_3std and std_v > 1e-6 and raw_n >= 4:
         threshold = 3.0 * std_v
         filtered_pts = [p for p in raw_pts if abs(p[1] - mean_v) <= threshold]
@@ -210,57 +215,48 @@ def query_channel_series(
         filtered_pts = raw_pts
 
     filtered_n = len(filtered_pts)
-
-    # recompute clean min/max/mean after outlier rejection so y-axis autoscale isn't skewed
     clean_min = min(p[1] for p in filtered_pts)
     clean_max = max(p[1] for p in filtered_pts)
     clean_mean = sum(p[1] for p in filtered_pts) / filtered_n
     latest_v = filtered_pts[-1][1]
 
-    # fixed time-bucket aggregation for downsampling dense datasets while preserving min/max envelope
+    # fixed timespan buckets anchored to t=0 so sliding live windows never warble
     max_b = max(10, int(max_buckets))
     dt_span = max(win_end - win_start, 1e-3)
+    bucket_size = dt_span / float(max_b)
 
-    if filtered_n <= max_b:
-        bucketed = [
-            {"t": p[0], "v": p[1], "minV": p[1], "maxV": p[1], "count": 1}
-            for p in filtered_pts
-        ]
-    else:
-        bucket_size = dt_span / float(max_b)
-        buckets = {}
-        for t_val, v_val in filtered_pts:
-            b_idx = int((t_val - win_start) / bucket_size)
-            if b_idx >= max_b:
-                b_idx = max_b - 1
-            elif b_idx < 0:
-                b_idx = 0
-            if b_idx not in buckets:
-                buckets[b_idx] = [v_val, 1, v_val, v_val]
-            else:
-                b = buckets[b_idx]
-                b[0] += v_val
-                b[1] += 1
-                if v_val < b[2]:
-                    b[2] = v_val
-                if v_val > b[3]:
-                    b[3] = v_val
+    buckets = {}
+    for t_val, v_val in filtered_pts:
+        b_idx = math.floor(t_val / bucket_size)
+        b = buckets.get(b_idx)
+        if b is None:
+            buckets[b_idx] = [v_val, 1, v_val, v_val]
+        else:
+            b[0] += v_val
+            b[1] += 1
+            if v_val < b[2]:
+                b[2] = v_val
+            if v_val > b[3]:
+                b[3] = v_val
 
-        bucketed = []
-        for b_idx in sorted(buckets.keys()):
-            b_sum, b_cnt, b_min, b_max = buckets[b_idx]
-            b_t = win_start + (b_idx + 0.5) * bucket_size
-            bucketed.append(
-                {
-                    "t": b_t,
-                    "v": b_sum / b_cnt,
-                    "minV": b_min,
-                    "maxV": b_max,
-                    "count": b_cnt,
-                }
-            )
+    bucketed = []
+    for b_idx in sorted(buckets.keys()):
+        b_sum, b_cnt, b_min, b_max = buckets[b_idx]
+        b_t = (b_idx + 0.5) * bucket_size
+        if b_t < win_start:
+            b_t = win_start
+        elif b_t > win_end:
+            b_t = win_end
+        bucketed.append(
+            {
+                "t": b_t,
+                "v": b_sum / b_cnt,
+                "minV": b_min,
+                "maxV": b_max,
+                "count": b_cnt,
+            }
+        )
 
-    # optional centered moving-average smoothing pass over bucketed series
     sw = max(1, int(smoothing_window))
     if sw > 1 and len(bucketed) > 1:
         half_w = sw // 2
@@ -287,3 +283,74 @@ def query_channel_series(
         "tMin": win_start,
         "tMax": win_end,
     }
+
+
+def query_channel_series(
+    records: list,
+    seconds_list: list,
+    channel: str,
+    t_start: float,
+    t_end: float,
+    max_buckets: int = 300,
+    filter_outliers_3std: bool = False,
+    smoothing_window: int = 1,
+) -> dict:
+    """
+    computes windowed, optionally 3-std outlier-filtered, fixed-timespan bucketed,
+    and moving-average smoothed time-series points for a given channel.
+    """
+    win_start, win_end = _compute_window_bounds(seconds_list, t_start, t_end)
+    if not records or not seconds_list or not channel:
+        return _series_from_sliced_records([], channel, win_start, win_end)
+
+    idx_left = bisect.bisect_left(seconds_list, win_start)
+    idx_right = bisect.bisect_right(seconds_list, win_end)
+    sliced = records[idx_left:idx_right]
+    return _series_from_sliced_records(
+        sliced,
+        channel,
+        win_start,
+        win_end,
+        max_buckets,
+        filter_outliers_3std,
+        smoothing_window,
+    )
+
+
+def query_batch_channels(
+    records: list, seconds_list: list, requests: list
+) -> dict:
+    """
+    executes a batched query across multiple GraphCards in a single pass,
+    sharing the binary-searched time slice across cards with identical bounds.
+    """
+    results = {}
+    slice_cache = {}
+    for req in requests:
+        if not isinstance(req, dict):
+            continue
+        card_id = str(req.get("index", ""))
+        channel = str(req.get("channel", ""))
+        t_start = float(req.get("tStart", -30.0))
+        t_end = float(req.get("tEnd", -1.0))
+        max_b = int(req.get("maxBuckets", 300))
+        f3std = bool(req.get("filterOutliers3Std", False))
+        smooth = int(req.get("smoothingWindow", 1))
+
+        bounds_key = (t_start, t_end)
+        if bounds_key not in slice_cache:
+            w_start, w_end = _compute_window_bounds(seconds_list, t_start, t_end)
+            if records and seconds_list:
+                i_left = bisect.bisect_left(seconds_list, w_start)
+                i_right = bisect.bisect_right(seconds_list, w_end)
+                sliced = records[i_left:i_right]
+            else:
+                sliced = []
+            slice_cache[bounds_key] = (w_start, w_end, sliced)
+        else:
+            w_start, w_end, sliced = slice_cache[bounds_key]
+
+        results[card_id] = _series_from_sliced_records(
+            sliced, channel, w_start, w_end, max_b, f3std, smooth
+        )
+    return results

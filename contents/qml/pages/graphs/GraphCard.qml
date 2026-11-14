@@ -79,21 +79,14 @@ Kirigami.Card {
     property int bucketCount: 0
     property real plotTMin: 0
     property real plotTMax: 30
+    property bool _ready: false
 
     signal editRequested(int index)
     signal removeRequested(int index)
     signal moveRequested(int fromIndex, int toIndex)
     signal resizeRequested(int index, int newColSpan, real newHeight)
 
-    function refreshFromBackend() {
-        if (typeof backend === "undefined" || backend === null || typeof backend.get_channel_data !== "function" || root.channelKey === "") {
-            plotCanvas.requestPaint();
-            return ;
-        }
-        // pass negative windowSeconds when using preset trailing windows so backend slices most recent samples
-        var tStartArg = root.useCustomRange ? root.customRangeStart : -root.windowSeconds;
-        var tEndArg = root.useCustomRange ? root.customRangeEnd : -1;
-        var res = backend.get_channel_data(root.dataSourceMode, root.channelKey, tStartArg, tEndArg, root.maxBuckets, root.filterOutliers3Std, root.smoothingWindow);
+    function applyChannelData(res) {
         if (res && res.points !== undefined) {
             root.history = res.points;
             root.statMin = Number(res.min ?? 0);
@@ -108,7 +101,18 @@ Kirigami.Card {
         plotCanvas.requestPaint();
     }
 
-    clip: true
+    function refreshFromBackend() {
+        if (typeof backend === "undefined" || backend === null || typeof backend.get_channel_data !== "function" || root.channelKey === "") {
+            plotCanvas.requestPaint();
+            return ;
+        }
+        // pass negative windowSeconds when using preset trailing windows so backend slices most recent samples
+        var tStartArg = root.useCustomRange ? root.customRangeStart : -root.windowSeconds;
+        var tEndArg = root.useCustomRange ? root.customRangeEnd : -1;
+        var res = backend.get_channel_data(root.dataSourceMode, root.channelKey, tStartArg, tEndArg, root.maxBuckets, root.filterOutliers3Std, root.smoothingWindow);
+        root.applyChannelData(res);
+    }
+
     implicitWidth: fixedCardWidth
     width: fixedCardWidth
     Layout.fillWidth: false
@@ -118,24 +122,30 @@ Kirigami.Card {
     Layout.maximumWidth: fixedCardWidth
     Layout.minimumHeight: 210
     Layout.preferredHeight: Math.max(210, root.cardHeight)
-    Component.onCompleted: refreshFromBackend()
-    onChannelKeyChanged: refreshFromBackend()
-    onDataSourceModeChanged: refreshFromBackend()
-    onWindowSecondsChanged: refreshFromBackend()
-    onUseCustomRangeChanged: refreshFromBackend()
-    onCustomRangeStartChanged: {
-        if (useCustomRange)
+    Component.onCompleted: {
+        root._ready = true;
+        refreshFromBackend();
+    }
+    onChannelKeyChanged: {
+        if (root._ready)
             refreshFromBackend();
 
     }
-    onCustomRangeEndChanged: {
-        if (useCustomRange)
+    onFilterOutliers3StdChanged: {
+        if (root._ready)
             refreshFromBackend();
 
     }
-    onFilterOutliers3StdChanged: refreshFromBackend()
-    onSmoothingWindowChanged: refreshFromBackend()
-    onMaxBucketsChanged: refreshFromBackend()
+    onSmoothingWindowChanged: {
+        if (root._ready)
+            refreshFromBackend();
+
+    }
+    onMaxBucketsChanged: {
+        if (root._ready)
+            refreshFromBackend();
+
+    }
     onAutoScaleChanged: plotCanvas.requestPaint()
     onManualMinYChanged: plotCanvas.requestPaint()
     onManualMaxYChanged: plotCanvas.requestPaint()
@@ -145,15 +155,6 @@ Kirigami.Card {
     onShowFillChanged: plotCanvas.requestPaint()
     onXAxisLabelChanged: plotCanvas.requestPaint()
     onYAxisLabelChanged: plotCanvas.requestPaint()
-
-    Connections {
-        function onTelemetry_changed() {
-            root.refreshFromBackend();
-        }
-
-        target: typeof backend !== "undefined" ? backend : null
-        ignoreUnknownSignals: true
-    }
 
     header: GraphCardHeader {
         cardIndex: root.cardIndex
@@ -179,7 +180,6 @@ Kirigami.Card {
     }
 
     contentItem: Item {
-        clip: true
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumHeight: 135

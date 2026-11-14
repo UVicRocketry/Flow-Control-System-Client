@@ -215,18 +215,17 @@ ColumnLayout {
 
         }
         var ch;
-        if (missingChannels.length > 0) {
+        if (missingChannels.length > 0)
             ch = missingChannels[0];
-        } else if (graphsRoot.availableChannels.length > 0) {
+        else if (graphsRoot.availableChannels.length > 0)
             ch = graphsRoot.availableChannels[Math.floor(Math.random() * graphsRoot.availableChannels.length)];
-        } else {
+        else
             ch = {
                 "key": "P_RUN_TANK",
                 "title": "New Telemetry Graph",
                 "unit": "PSI",
                 "color": "theme:highlight"
             };
-        }
         var draftCard = {
             "title": ch.title || ch.key,
             "channelKey": ch.key,
@@ -246,12 +245,54 @@ ColumnLayout {
         graphEditModal.openForCard(-1, draftCard, graphsRoot.availableChannels);
     }
 
+    function scheduleBatchRefresh() {
+        if (!batchRefreshTimer.running)
+            batchRefreshTimer.start();
+
+    }
+
+    function refreshAllCardsBatched() {
+        if (typeof backend === "undefined" || !backend || typeof backend.get_batch_channel_data !== "function")
+            return ;
+
+        var requests = [];
+        var cards = [];
+        var useCustom = graphsRoot.dataSourceMode !== "live" && graphsRoot.customSpanActive;
+        var tStartArg = useCustom ? graphsRoot.rangeStart : -graphsRoot.windowSeconds;
+        var tEndArg = useCustom ? graphsRoot.rangeEnd : -1;
+        for (let i = 0; i < cardsRepeater.count; ++i) {
+            let card = cardsRepeater.itemAt(i);
+            if (!card || !card.channelKey)
+                continue;
+
+            cards.push(card);
+            requests.push({
+                "index": i,
+                "channel": card.channelKey,
+                "tStart": tStartArg,
+                "tEnd": tEndArg,
+                "maxBuckets": card.maxBuckets,
+                "filterOutliers3Std": card.filterOutliers3Std,
+                "smoothingWindow": card.smoothingWindow
+            });
+        }
+        if (requests.length === 0)
+            return ;
+
+        var batchRes = backend.get_batch_channel_data(graphsRoot.dataSourceMode, requests);
+        for (let k = 0; k < cards.length; ++k) {
+            let reqIdx = requests[k].index;
+            cards[k].applyChannelData(batchRes[String(reqIdx)]);
+        }
+    }
+
     spacing: Kirigami.Units.mediumSpacing
     Layout.fillWidth: true
     Layout.fillHeight: true
     Component.onCompleted: {
         loadDefaultGraphs();
         syncLoadedMeta();
+        scheduleBatchRefresh();
     }
     onEditLayoutModeChanged: {
         if (!graphsRoot.editLayoutMode && graphsModel.count > 0)
@@ -262,6 +303,18 @@ ColumnLayout {
         for (let i = 0; i < graphsModel.count; ++i) {
             graphsModel.setProperty(i, "filterOutliers3Std", graphsRoot.global3StdFilter);
         }
+    }
+    onDataSourceModeChanged: scheduleBatchRefresh()
+    onCustomSpanActiveChanged: scheduleBatchRefresh()
+    onRangeStartChanged: {
+        if (graphsRoot.customSpanActive && graphsRoot.dataSourceMode !== "live")
+            scheduleBatchRefresh();
+
+    }
+    onRangeEndChanged: {
+        if (graphsRoot.customSpanActive && graphsRoot.dataSourceMode !== "live")
+            scheduleBatchRefresh();
+
     }
     onWindowSecondsChanged: {
         // snap range to most recent [maxTime - windowSeconds, maxTime] when a preset is selected in the sidebar
@@ -275,15 +328,29 @@ ColumnLayout {
         } else {
             graphsRoot.customSpanActive = false;
         }
+        scheduleBatchRefresh();
+    }
+
+    Timer {
+        id: batchRefreshTimer
+
+        interval: 0
+        repeat: false
+        onTriggered: graphsRoot.refreshAllCardsBatched()
     }
 
     Connections {
+        function onTelemetry_changed() {
+            graphsRoot.scheduleBatchRefresh();
+        }
+
         function onData_loaded(mode, filePath, meta) {
             graphsRoot.syncLoadedMeta();
             if (graphsRoot.dataSourceMode === "live")
                 graphsRoot.dataSourceMode = mode === "remote" ? "remote" : "local";
 
             graphsRoot.notifyUnshownLoadedData(meta);
+            graphsRoot.scheduleBatchRefresh();
         }
 
         function onChannels_changed() {
@@ -292,6 +359,7 @@ ColumnLayout {
                 if (graphsModel.count === 0)
                     graphsRoot.loadDefaultGraphs();
 
+                graphsRoot.scheduleBatchRefresh();
             }
         }
 
@@ -329,6 +397,8 @@ ColumnLayout {
             onColumnsChanged: graphsRoot.syncRowHeights(-1, 0)
 
             Repeater {
+                id: cardsRepeater
+
                 model: graphsModel
 
                 GraphCard {
@@ -392,7 +462,6 @@ ColumnLayout {
             Kirigami.Card {
                 id: addGraphPlaceholderCard
 
-                clip: true
                 implicitWidth: graphsGrid.singleColumnWidth
                 width: graphsGrid.singleColumnWidth
                 Layout.fillWidth: false
