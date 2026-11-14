@@ -3,6 +3,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
+// rename and delete confirmation dialogs for telemetry data files on the dashboard
 Item {
     id: root
 

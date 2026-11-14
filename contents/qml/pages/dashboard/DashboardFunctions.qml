@@ -1,5 +1,6 @@
 import QtQuick
 
+// state and backend bridge helper for Dashboard data file lists, selection, renames, and deferred deletions
 QtObject {
     id: root
 

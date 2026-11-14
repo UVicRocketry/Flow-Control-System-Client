@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 
+// startup splash screen displaying the application icon and backend initialization status
 Rectangle {
     id: splashRoot
 

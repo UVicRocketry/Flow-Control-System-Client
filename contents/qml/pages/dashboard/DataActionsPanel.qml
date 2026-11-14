@@ -3,6 +3,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
+// side action panel for opening, revealing, downloading, deleting, and undoing telemetry data files
 ColumnLayout {
     id: root
 

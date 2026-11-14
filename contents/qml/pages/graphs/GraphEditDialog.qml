@@ -3,6 +3,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
+// modal dialog for configuring a GraphCard's channel, labels, color, Y-axis bounds, and smoothing
 Kirigami.Dialog {
     id: root
 

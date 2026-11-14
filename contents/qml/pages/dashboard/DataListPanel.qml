@@ -3,6 +3,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
+// searchable, sectioned list view of external, local, and remote telemetry logs with inline file actions
 ColumnLayout {
     id: root
 

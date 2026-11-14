@@ -1,6 +1,7 @@
 import QtQuick
 import org.kde.kirigami as Kirigami
 
+// overlay stack for toast notifications filtered by minimum log severity
 Column {
     id: root
 

@@ -3,6 +3,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
+// self-contained telemetry graph card combining header, plot canvas, statistics footer, and resize handles
 Kirigami.Card {
     id: root
 

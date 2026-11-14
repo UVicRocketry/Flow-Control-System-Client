@@ -5,6 +5,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
+// dashboard page for WebSocket connection management and browsing local, external, and remote telemetry logs
 ColumnLayout {
     id: dashboard
 

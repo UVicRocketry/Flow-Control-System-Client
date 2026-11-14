@@ -4,6 +4,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
+// persistent left sidebar hosting page navigation, contextual view helpers, settings, and notifications
 ColumnLayout {
     id: root
 

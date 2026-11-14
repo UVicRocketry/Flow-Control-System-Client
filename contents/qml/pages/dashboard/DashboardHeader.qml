@@ -3,6 +3,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
+// dashboard card header showing active data status and live/local/remote mode switcher tabs
 ColumnLayout {
     id: root
 

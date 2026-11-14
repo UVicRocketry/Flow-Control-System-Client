@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtWebSockets
 import org.kde.kirigami as Kirigami
 
+// WebSocket connection status indicator, handler and controller
 Item {
     id: wsRoot
 

@@ -3,6 +3,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
+// individual valve/actuator control card supporting servo, 3-way solenoid, QD solenoid, and e-match types
 Kirigami.Card {
     id: card
 

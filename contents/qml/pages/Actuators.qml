@@ -4,6 +4,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
+// valve actuators control page displaying live valve cards, confirmation dialogs, and hotkey bindings
 ColumnLayout {
     id: actuators
 
