@@ -21,9 +21,12 @@ from config_manager import (
     read_app_config,
     read_graphs_config,
     write_app_config,
+    write_graphs_config,
 )
 from telemetry_files import (
+    append_recording_rows,
     delete_data_file,
+    init_recording_csv,
     list_local_data_files,
     parse_telemetry_file,
     rename_data_file,
@@ -41,6 +44,40 @@ from telemetry_series import (
 assert snake_case, true_property
 
 ensure_config_file_exists()
+
+LARGE_FILE_BYTES = 10 * 1024 * 1024
+
+
+class _FileParseSignals(QtCore.QObject):
+    finished = QtCore.Signal(str, str, str, object, object, object)
+    failed = QtCore.Signal(str, str)
+
+
+class _FileParseWorker(QtCore.QRunnable):
+    """Background QRunnable for parsing large (>10 MB) telemetry files."""
+
+    def __init__(self, mode: str, target: str, resolved_path: Path):
+        super().__init__()
+        self.mode = mode
+        self.target = target
+        self.resolved_path = resolved_path
+        self.signals = _FileParseSignals()
+
+    def run(self):
+        try:
+            records, seconds_list, cols = parse_telemetry_file(
+                self.resolved_path
+            )
+            self.signals.finished.emit(
+                self.mode,
+                self.target,
+                str(self.resolved_path),
+                records,
+                seconds_list,
+                cols,
+            )
+        except Exception as err:
+            self.signals.failed.emit(self.target, str(err))
 
 
 class Backend(QtCore.QObject):
@@ -70,12 +107,18 @@ class Backend(QtCore.QObject):
     ws_send_requested = QtCore.Signal(str)
     disconnected = QtCore.Signal()
     websocket_closed = QtCore.Signal()
+    recording_changed = QtCore.Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._config_data = {}
         self._armed = False
         self._ws_connected = False
+        self._recording = False
+        self._record_file_path = None
+        self._record_columns = []
+        self._record_sample_count = 0
+        self._active_workers = []
         self._valve_definitions = []
         self._valves = {}
         self._local_data = []
@@ -283,6 +326,43 @@ class Backend(QtCore.QObject):
             self._default_graph_cards = default_cards
         self.channels_changed.emit()
 
+    @staticmethod
+    def _normalize_graph_card(card: dict) -> dict:
+        raw_title = card.get("title") or card.get("channelKey") or "Graph"
+        return {
+            "title": str(raw_title),
+            "channelKey": str(card.get("channelKey") or ""),
+            "xAxisLabel": str(card.get("xAxisLabel") or "Time (s)"),
+            "yAxisLabel": str(card.get("yAxisLabel") or ""),
+            "accentColor": str(card.get("accentColor") or "theme:highlight"),
+            "autoScale": bool(card.get("autoScale", True)),
+            "manualMinY": float(card.get("manualMinY", 0.0)),
+            "manualMaxY": float(card.get("manualMaxY", 1000.0)),
+            "minYRange": float(card.get("minYRange", 10.0)),
+            "filterOutliers3Std": bool(card.get("filterOutliers3Std", False)),
+            "smoothingWindow": int(card.get("smoothingWindow", 1)),
+            "maxBuckets": int(card.get("maxBuckets", 300)),
+            "showGrid": bool(card.get("showGrid", True)),
+            "showFill": bool(card.get("showFill", True)),
+            "colSpan": int(card.get("colSpan", 1)),
+            "cardHeight": max(210, int(card.get("cardHeight", 230))),
+        }
+
+    @QtCore.Slot("QVariantList", result=bool)
+    def save_graphs_config(self, cards: list) -> bool:
+        """Persists updated graph card layout to config/graphs/graphs.json."""
+        if not isinstance(cards, list):
+            return False
+        normalized = [
+            self._normalize_graph_card(dict(c))
+            for c in cards
+            if isinstance(c, dict)
+        ]
+        self._default_graph_cards = normalized
+        return write_graphs_config(
+            self._known_channels, self._default_graph_cards, self.log_error
+        )
+
     @QtCore.Property("QVariantMap", notify=telemetry_changed)
     def telemetry(self) -> dict:
         return self._latest_telemetry
@@ -302,6 +382,81 @@ class Backend(QtCore.QObject):
     @QtCore.Slot(str, result="QVariantMap")
     def get_channel_meta(self, channel: str) -> dict:
         return format_channel_meta(self._known_channels, channel)
+
+    # telemetry recording (local + server)
+
+    @QtCore.Property(bool, notify=recording_changed)
+    def recording(self) -> bool:
+        return self._recording
+
+    @recording.setter
+    def recording(self, active: bool):
+        self.set_recording(active)
+
+    @QtCore.Slot(bool)
+    def set_recording(self, active: bool):
+        """Starts or stops telemetry recording locally and on the server."""
+        active = bool(active)
+        if self._recording == active:
+            return
+        if active:
+            self._start_recording()
+        else:
+            self._stop_recording()
+
+    @QtCore.Slot(result=bool)
+    def toggle_recording(self) -> bool:
+        self.set_recording(not self._recording)
+        return self._recording
+
+    def _start_recording(self):
+        ts = time.strftime("%Y_%m_%d_%H%M%S")
+        dest_path = CONFIG_DIR / "data" / f"telemetry_{ts}.csv"
+        try:
+            self._record_columns = init_recording_csv(
+                dest_path, self._known_channels
+            )
+        except Exception as err:
+            self.log_error(f"Failed to start local telemetry recording: {err}")
+            return
+
+        self._record_file_path = dest_path
+        self._record_sample_count = 0
+        self._recording = True
+        self.recording_changed.emit(True)
+        self.refresh_local_data()
+
+        payload = {
+            "type": "record",
+            "command": "RECORD",
+            "active": True,
+            "filename": dest_path.name,
+        }
+        self.ws_send_requested.emit(json.dumps(payload))
+        suffix = (
+            " and on server." if self._ws_connected else " (server offline)."
+        )
+        self.log_info(
+            f'Recording telemetry to "{dest_path.name}" locally{suffix}'
+        )
+
+    def _stop_recording(self):
+        fname = (
+            self._record_file_path.name
+            if self._record_file_path
+            else "telemetry.csv"
+        )
+        count = self._record_sample_count
+        self._recording = False
+        self._record_file_path = None
+        self.recording_changed.emit(False)
+
+        payload = {"type": "record", "command": "RECORD", "active": False}
+        self.ws_send_requested.emit(json.dumps(payload))
+        self.refresh_local_data()
+        if self._ws_connected:
+            self.refresh_remote_data()
+        self.log_info(f'Stopped recording "{fname}" ({count} samples saved).')
 
     # actuator & safety state
 
@@ -378,6 +533,14 @@ class Backend(QtCore.QObject):
         self._ws_connected = connected
         if connected and not was_connected:
             self.refresh_remote_data()
+            if self._recording and self._record_file_path:
+                payload = {
+                    "type": "record",
+                    "command": "RECORD",
+                    "active": True,
+                    "filename": self._record_file_path.name,
+                }
+                self.ws_send_requested.emit(json.dumps(payload))
         elif not connected:
             self.set_armed(False)
             if was_connected:
@@ -673,6 +836,18 @@ class Backend(QtCore.QObject):
 
     # live WebSocket telemetry ingestion & file loading
 
+    def _append_to_active_recording(self, ingested: list):
+        if not (self._recording and self._record_file_path and ingested):
+            return
+        try:
+            append_recording_rows(
+                self._record_file_path, self._record_columns, ingested
+            )
+            self._record_sample_count += len(ingested)
+        except Exception as err:
+            self.log_error(f"Failed writing to recording CSV: {err}")
+            self.set_recording(False)
+
     @QtCore.Slot(str)
     def ingest_ws_message(self, raw_message: str):
         """ingests incoming WebSocket frames into control and telemetry."""
@@ -696,6 +871,7 @@ class Backend(QtCore.QObject):
             self._latest_telemetry,
         )
         new_channels, ingested, self._live_t0, self._latest_telemetry = res
+        self._append_to_active_recording(ingested)
         for rec in ingested:
             self.telemetry_point_received.emit(rec)
         if new_channels:
@@ -703,15 +879,15 @@ class Backend(QtCore.QObject):
         if ingested:
             self.telemetry_changed.emit()
 
-    def _load_resolved_file(
-        self, mode: str, target: str, resolved_path: Path
+    def _apply_parsed_telemetry(
+        self,
+        mode: str,
+        target: str,
+        resolved_str: str,
+        records: list,
+        seconds_list: list,
+        cols: list,
     ) -> dict:
-        try:
-            records, seconds_list, cols = parse_telemetry_file(resolved_path)
-        except Exception as err:
-            self.log_error(f'Failed to parse data file "{target}": {err}')
-            return {}
-
         new_ch = False
         for c in cols:
             if register_channel_if_missing(self._known_channels, c):
@@ -727,7 +903,7 @@ class Backend(QtCore.QObject):
         self._loaded_meta = {
             "source": mode,
             "path": target,
-            "resolvedPath": str(resolved_path),
+            "resolvedPath": resolved_str,
             "name": Path(target).name,
             "columns": list(cols),
             "count": len(records),
@@ -741,6 +917,63 @@ class Backend(QtCore.QObject):
         self.data_loaded.emit(mode, target, self._loaded_meta)
         self.telemetry_changed.emit()
         return self._loaded_meta
+
+    def _on_worker_finished(
+        self,
+        worker: _FileParseWorker,
+        mode: str,
+        target: str,
+        resolved_str: str,
+        records: list,
+        seconds_list: list,
+        cols: list,
+    ):
+        if worker in self._active_workers:
+            self._active_workers.remove(worker)
+        self._apply_parsed_telemetry(
+            mode, target, resolved_str, records, seconds_list, cols
+        )
+
+    def _on_worker_failed(
+        self, worker: _FileParseWorker, target: str, err_msg: str
+    ):
+        if worker in self._active_workers:
+            self._active_workers.remove(worker)
+        self.log_error(f'Failed to parse data file "{target}": {err_msg}')
+
+    def _load_resolved_file(
+        self, mode: str, target: str, resolved_path: Path
+    ) -> dict:
+        try:
+            file_size = resolved_path.stat().st_size
+        except OSError:
+            file_size = 0
+
+        if file_size > LARGE_FILE_BYTES:
+            name = Path(target).name
+            self.log_info(f'Loading large log "{name}" in background...')
+            worker = _FileParseWorker(mode, target, resolved_path)
+            self._active_workers.append(worker)
+            worker.signals.finished.connect(
+                lambda m, t, r, rec, sec, cols, w=worker: (
+                    self._on_worker_finished(w, m, t, r, rec, sec, cols)
+                )
+            )
+            worker.signals.failed.connect(
+                lambda t, err, w=worker: self._on_worker_failed(w, t, err)
+            )
+            QtCore.QThreadPool.global_instance().start(worker)
+            return {}
+
+        try:
+            records, seconds_list, cols = parse_telemetry_file(resolved_path)
+        except Exception as err:
+            self.log_error(f'Failed to parse data file "{target}": {err}')
+            return {}
+
+        return self._apply_parsed_telemetry(
+            mode, target, str(resolved_path), records, seconds_list, cols
+        )
 
     @QtCore.Slot(str, str, result="QVariant")
     @QtCore.Slot(str, result="QVariant")

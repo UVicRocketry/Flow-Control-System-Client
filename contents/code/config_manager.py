@@ -254,3 +254,25 @@ def read_graphs_config(log_error_fn=None) -> tuple[dict, list]:
             log_error_fn(f'Failed to load graphs configuration from "{target}": {err}')
 
     return known_channels, default_cards
+
+
+def write_graphs_config(
+    known_channels: dict, default_cards: list, log_error_fn=None
+) -> bool:
+    """writes channel definitions and default graph card configs to GRAPHS_CONFIG_FILE."""
+    try:
+        GRAPHS_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "channels": known_channels,
+            "default_cards": default_cards,
+        }
+        with open(GRAPHS_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=4, ensure_ascii=False)
+        return True
+    except Exception as err:
+        if log_error_fn:
+            log_error_fn(
+                f'Failed to save graphs configuration to "{GRAPHS_CONFIG_FILE}": {err}'
+            )
+        return False
+

@@ -4,6 +4,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
+// telemetry graphs workspace managing a responsive grid of GraphCards, timespan slider, and layout persistence
 ColumnLayout {
     id: graphsRoot
 
@@ -171,6 +172,35 @@ ColumnLayout {
         syncRowHeights(-1, 0);
     }
 
+    function persistGraphsConfig() {
+        if (typeof backend === "undefined" || !backend || typeof backend.save_graphs_config !== "function")
+            return ;
+
+        var cards = [];
+        for (let i = 0; i < graphsModel.count; ++i) {
+            let item = graphsModel.get(i);
+            cards.push({
+                "title": String(item.title ?? ""),
+                "channelKey": String(item.channelKey ?? ""),
+                "xAxisLabel": String(item.xAxisLabel ?? "Time (s)"),
+                "yAxisLabel": String(item.yAxisLabel ?? ""),
+                "accentColor": String(item.accentColor ?? "theme:highlight"),
+                "autoScale": Boolean(item.autoScale),
+                "manualMinY": Number(item.manualMinY ?? 0),
+                "manualMaxY": Number(item.manualMaxY ?? 1000),
+                "minYRange": Number(item.minYRange ?? 10),
+                "filterOutliers3Std": Boolean(item.filterOutliers3Std),
+                "smoothingWindow": Number(item.smoothingWindow ?? 1),
+                "maxBuckets": Number(item.maxBuckets ?? 300),
+                "showGrid": Boolean(item.showGrid),
+                "showFill": Boolean(item.showFill),
+                "colSpan": Number(item.colSpan ?? 1),
+                "cardHeight": Math.max(210, Number(item.cardHeight ?? 230))
+            });
+        }
+        backend.save_graphs_config(cards);
+    }
+
     function addNewGraphCard() {
         var ch = graphsRoot.availableChannels.length > 0 ? graphsRoot.availableChannels[graphsModel.count % graphsRoot.availableChannels.length] : {
             "key": "P_RUN_TANK",
@@ -197,6 +227,7 @@ ColumnLayout {
             "cardHeight": graphsRoot.placeholderRowHeight
         });
         syncRowHeights(graphsModel.count - 1, graphsRoot.placeholderRowHeight);
+        persistGraphsConfig();
     }
 
     spacing: Kirigami.Units.mediumSpacing
@@ -205,6 +236,11 @@ ColumnLayout {
     Component.onCompleted: {
         loadDefaultGraphs();
         syncLoadedMeta();
+    }
+    onEditLayoutModeChanged: {
+        if (!graphsRoot.editLayoutMode && graphsModel.count > 0)
+            graphsRoot.persistGraphsConfig();
+
     }
     onGlobal3StdFilterChanged: {
         for (let i = 0; i < graphsModel.count; ++i) {
@@ -314,6 +350,7 @@ ColumnLayout {
                         if (idx >= 0 && idx < graphsModel.count) {
                             graphsModel.remove(idx);
                             graphsRoot.syncRowHeights(-1, 0);
+                            graphsRoot.persistGraphsConfig();
                         }
                     }
                     onMoveRequested: function(fromIdx, toIdx) {
@@ -321,12 +358,14 @@ ColumnLayout {
                             let movedH = graphsModel.get(toIdx).cardHeight;
                             graphsModel.move(fromIdx, toIdx, 1);
                             graphsRoot.syncRowHeights(toIdx, movedH);
+                            graphsRoot.persistGraphsConfig();
                         }
                     }
                     onResizeRequested: function(idx, newSpan, newHeight) {
                         if (idx >= 0 && idx < graphsModel.count) {
                             graphsModel.setProperty(idx, "colSpan", newSpan);
                             graphsRoot.syncRowHeights(idx, newHeight);
+                            graphsRoot.persistGraphsConfig();
                         }
                     }
                 }
@@ -522,6 +561,7 @@ ColumnLayout {
             graphsModel.setProperty(idx, "showFill", cfg.showFill);
             graphsModel.setProperty(idx, "colSpan", cfg.colSpan);
             graphsRoot.syncRowHeights(idx, graphsModel.get(idx).cardHeight);
+            graphsRoot.persistGraphsConfig();
         }
     }
 

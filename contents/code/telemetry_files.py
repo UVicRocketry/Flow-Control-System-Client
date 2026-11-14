@@ -381,52 +381,109 @@ def delete_data_file(mode: str, filename: str) -> Path:
     return target
 
 
+def init_recording_csv(dest_path: Path, known_channels: dict) -> list[str]:
+    """
+    creates a new telemetry CSV file with the standard two-row header
+    (units row + channel names + seconds) and returns the ordered channel list.
+    """
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    channels = list(known_channels.keys())
+    if not channels:
+        channels = [
+            "P_INJECTOR",
+            "P_COMB_CHMBR",
+            "P_N2O_FLOW",
+            "P_N2_FLOW",
+            "P_RUN_TANK",
+            "L_RUN_TANK",
+            "L_THRUST",
+            "T_RUN_TANK",
+            "T_INJECTOR",
+            "T_COMB_CHMBR",
+            "T_POST_COMB",
+        ]
+    units_row = [_unit_for_channel(ch, known_channels) for ch in channels] + ["s"]
+    header_row = channels + ["seconds"]
+    with open(dest_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(units_row)
+        writer.writerow(header_row)
+    return channels
+
+
+def append_recording_rows(
+    dest_path: Path, channels: list[str], ingested_records: list[dict]
+) -> None:
+    """appends newly ingested live telemetry records to an active recording CSV."""
+    if not ingested_records or not channels:
+        return
+    with open(dest_path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        for rec in ingested_records:
+            vals = rec.get("values", {})
+            t_val = round(float(rec.get("t", 0.0)), 6)
+            row = [
+                round(float(vals[ch]), 4) if ch in vals else ""
+                for ch in channels
+            ] + [t_val]
+            writer.writerow(row)
+
+
 def reveal_in_file_browser(url: str, log_info_fn=None, log_warn_fn=None) -> None:
-    """reveals the target file in the native OS file manager."""
+    """reveals the target file or directory in the native OS file manager."""
     candidate = Path(url)
     if not candidate.exists():
         local_candidate = CONFIG_DIR / "data" / candidate.name
         if local_candidate.exists():
             candidate = local_candidate
     target_file = candidate.resolve()
-    target_dir = target_file.parent
+    is_dir = target_file.is_dir()
+    target_dir = target_file if is_dir else target_file.parent
     try:
         if sys.platform.startswith("linux"):
-            cmd = [
-                "dbus-send",
-                "--session",
-                "--dest=org.freedesktop.FileManager1",
-                "--type=method_call",
-                "/org/freedesktop/FileManager1",
-                "org.freedesktop.FileManager1.ShowItems",
-                f"array:string:file://{target_file}",
-                "string:",
-            ]
-            res = subprocess.run(cmd, capture_output=True, timeout=1)
-            if res.returncode == 0:
-                if log_info_fn:
-                    log_info_fn(f"Showing file: {target_file.name}")
-                return
+            if not is_dir:
+                cmd = [
+                    "dbus-send",
+                    "--session",
+                    "--dest=org.freedesktop.FileManager1",
+                    "--type=method_call",
+                    "/org/freedesktop/FileManager1",
+                    "org.freedesktop.FileManager1.ShowItems",
+                    f"array:string:file://{target_file}",
+                    "string:",
+                ]
+                res = subprocess.run(cmd, capture_output=True, timeout=1)
+                if res.returncode == 0:
+                    if log_info_fn:
+                        log_info_fn(f"Showing file: {target_file.name}")
+                    return
 
-            # fallback to xdg-open on parent directory if dbus FileManager1 is unavailable
+            # fallback to xdg-open on directory if dbus FileManager1 is unavailable
             if shutil.which("xdg-open"):
                 subprocess.Popen(["xdg-open", str(target_dir)])
                 if log_info_fn:
-                    log_info_fn(f"Showing in data folder: {target_dir}")
+                    log_info_fn(f"Showing folder: {target_dir}")
                 return
 
         elif sys.platform == "win32":
-            subprocess.Popen(f'explorer /select,"{target_file}"')
+            if is_dir:
+                subprocess.Popen(f'explorer "{target_file}"')
+            else:
+                subprocess.Popen(f'explorer /select,"{target_file}"')
             if log_info_fn:
-                log_info_fn(f"Showing file in Explorer: {target_file.name}")
+                log_info_fn(f"Showing in Explorer: {target_file.name}")
             return
 
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", "-R", str(target_file)])
+            if is_dir:
+                subprocess.Popen(["open", str(target_file)])
+            else:
+                subprocess.Popen(["open", "-R", str(target_file)])
             if log_info_fn:
-                log_info_fn(f"Showing file in Finder: {target_file.name}")
+                log_info_fn(f"Showing in Finder: {target_file.name}")
             return
 
     except Exception as e:
         if log_warn_fn:
             log_warn_fn(f"Failed to open data file location: {e}")
+

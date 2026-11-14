@@ -133,7 +133,8 @@ def handle_startup_error(
     """Logs diagnostic details, shows a critical alert, and exits."""
     detailed_err = "\n".join(qml_errors) if qml_errors else "Unknown QML loading error."
     full_msg = (
-        f"[ERROR] Failed to load QML root objects.\n\nQML Diagnostics:\n{detailed_err}"
+        f"""[ERROR] Failed to load QML root objects.
+        \n\nQML Diagnostics:\n{detailed_err}"""
     )
     print(full_msg, file=sys.stderr)
 

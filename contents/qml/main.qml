@@ -1,4 +1,4 @@
-import QtCore
+import QtCore as Core
 import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
@@ -6,6 +6,7 @@ import QtWebSockets
 import org.kde.kirigami as Kirigami
 import "pages"
 
+// main application window hosting the shared WebSocket, global toolbar, sidebar drawer, and page stack
 Kirigami.ApplicationWindow {
     id: root
 
@@ -31,7 +32,7 @@ Kirigami.ApplicationWindow {
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.ToolBar
     pageStack.globalToolBar.showNavigationButtons: Kirigami.ApplicationHeaderStyle.NoNavigationButtons
 
-    Settings {
+    Core.Settings {
         id: appSettings
 
         property string minLogLevel: "INFO"
@@ -50,6 +51,7 @@ Kirigami.ApplicationWindow {
         onTextMessageReceived: function(message) {
             if (typeof backend !== "undefined" && backend && typeof backend.ingest_ws_message === "function")
                 backend.ingest_ws_message(message);
+
         }
     }
 
@@ -59,34 +61,53 @@ Kirigami.ApplicationWindow {
         title: "Controls"
         actions: [
             Kirigami.Action {
+                text: "Record data"
 
-                displayComponent: RowLayout {
-                    Controls.Label {
-                        text: "Auto-connect"
+                displayComponent: Controls.ToolButton {
+                    id: recordBtn
+
+                    property bool isRecording: backend ? backend.recording : false
+
+                    checkable: true
+                    checked: isRecording
+                    highlighted: isRecording
+                    padding: Kirigami.Units.smallSpacing
+                    leftPadding: Kirigami.Units.mediumSpacing
+                    rightPadding: Kirigami.Units.mediumSpacing
+                    onClicked: {
+                        if (backend)
+                            recordBtn.isRecording = backend.toggle_recording();
+
                     }
 
-                    Controls.CheckBox {
-                        checked: backend ? backend.auto_reconnect : false
-                        onToggled: {
-                            if (backend)
-                                backend.auto_reconnect = checked;
-
-                            if (checked) {
-                                root.userDisconnected = false;
-                                if (sharedWebSocket.status !== WebSocket.Open && sharedWebSocket.status !== WebSocket.Connecting) {
-                                    sharedWebSocket.active = false;
-                                    sharedWebSocket.active = true;
-                                }
-                            }
+                    Connections {
+                        function onRecording_changed(active: bool) {
+                            recordBtn.isRecording = active;
                         }
+
+                        target: backend
+                    }
+
+                    contentItem: RowLayout {
+                        spacing: Kirigami.Units.smallSpacing
+
+                        Kirigami.Icon {
+                            source: "keyframe-record"
+                            implicitWidth: Kirigami.Units.iconSizes.small
+                            implicitHeight: Kirigami.Units.iconSizes.small
+                            color: recordBtn.isRecording ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+                        }
+
+                        Controls.Label {
+                            text: recordBtn.isRecording ? "Recording..." : "Record data"
+                            font.bold: recordBtn.isRecording
+                            color: recordBtn.isRecording ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+                        }
+
                     }
 
                 }
 
-            },
-            Kirigami.Action {
-                text: "Record data"
-                icon.name: "keyframe-record"
             },
             Kirigami.Action {
                 text: "Connection"
@@ -246,12 +267,22 @@ Kirigami.ApplicationWindow {
             }
         }
 
-        Kirigami.PromptDialog {
+        Settings {
             id: settingsDialog
 
-            title: "Settings"
-            subtitle: "Application configuration and settings will be available here."
-            standardButtons: Kirigami.Dialog.Close
+            minLogLevel: appSettings.minLogLevel
+            onMinLogLevelUpdated: function(level) {
+                appSettings.minLogLevel = level;
+            }
+            onAutoConnectToggled: function(enabled) {
+                if (enabled) {
+                    root.userDisconnected = false;
+                    if (sharedWebSocket.status !== WebSocket.Open && sharedWebSocket.status !== WebSocket.Connecting) {
+                        sharedWebSocket.active = false;
+                        sharedWebSocket.active = true;
+                    }
+                }
+            }
         }
 
         Kirigami.PromptDialog {
