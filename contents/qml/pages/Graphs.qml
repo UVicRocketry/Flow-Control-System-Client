@@ -261,7 +261,7 @@ ColumnLayout {
         var tStartArg = useCustom ? graphsRoot.rangeStart : -graphsRoot.windowSeconds;
         var tEndArg = useCustom ? graphsRoot.rangeEnd : -1;
         for (let i = 0; i < cardsRepeater.count; ++i) {
-            let card = cardsRepeater.itemAt(i);
+            let card = cardsRepeater.itemAt(i) as GraphCard;
             if (!card || !card.channelKey)
                 continue;
 
@@ -282,7 +282,9 @@ ColumnLayout {
         var batchRes = backend.get_batch_channel_data(graphsRoot.dataSourceMode, requests);
         for (let k = 0; k < cards.length; ++k) {
             let reqIdx = requests[k].index;
-            cards[k].applyChannelData(batchRes[String(reqIdx)]);
+            let card = cards[k] as GraphCard;
+            if (card)
+                card.applyChannelData(batchRes[String(reqIdx)]);
         }
     }
 

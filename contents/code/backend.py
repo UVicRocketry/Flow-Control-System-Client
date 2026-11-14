@@ -727,6 +727,13 @@ class Backend(QtCore.QObject):
             self.log_error(f'Failed to rename "{old_name}": {err}')
             return False
 
+    def _prune_deleted_file_entry(self, mode: str, filename: str):
+        if mode == "local":
+            self.refresh_local_data()
+        elif mode == "external":
+            updated = [p for p in self.external_data if p != filename]
+            self._set_external_data_list(updated)
+
     @QtCore.Slot(str, str, result=bool)
     def delete_data(self, mode: str, filename: str) -> bool:
         """Deletes a local, external, or remote telemetry file."""
@@ -746,19 +753,11 @@ class Backend(QtCore.QObject):
 
         try:
             deleted = delete_data_file(mode, filename)
-            if mode == "local":
-                self.refresh_local_data()
-            elif mode == "external":
-                updated = [p for p in self.external_data if p != filename]
-                self._set_external_data_list(updated)
+            self._prune_deleted_file_entry(mode, filename)
             self.log_info(f'Deleted "{deleted.name}".')
             return True
         except FileNotFoundError:
-            if mode == "local":
-                self.refresh_local_data()
-            elif mode == "external":
-                updated = [p for p in self.external_data if p != filename]
-                self._set_external_data_list(updated)
+            self._prune_deleted_file_entry(mode, filename)
             return False
         except Exception as err:
             self.log_error(f'Failed to delete "{filename}": {err}')
@@ -910,29 +909,31 @@ class Backend(QtCore.QObject):
             self.log_error(f'Failed to save remote file "{fname}": {err}')
 
     def _handle_control_message(self, msg: dict):
-        msg_type = msg.get("type")
-        ident = msg.get("identifier")
-
         actuators_list = msg.get("actuators") or msg.get("valve_definitions")
         if isinstance(actuators_list, list):
             self._apply_actuator_definitions(actuators_list)
 
-        if msg_type in ("init", "actuators", "config"):
-            self._handle_init_or_config_msg(msg)
-        elif msg_type in ("valve_state", "summary"):
-            self._handle_valve_state_msg(msg)
-        elif ident == "FEEDBACK":
+        msg_type = msg.get("type")
+        handlers = {
+            "init": self._handle_init_or_config_msg,
+            "actuators": self._handle_init_or_config_msg,
+            "config": self._handle_init_or_config_msg,
+            "valve_state": self._handle_valve_state_msg,
+            "summary": self._handle_valve_state_msg,
+            "armed": lambda m: self.set_armed(bool(m.get("armed", False))),
+            "remote_data_list": self._handle_remote_data_list_msg,
+            "remote_data_content": self._handle_remote_data_content_msg,
+            "alert": lambda m: self.log(
+                m.get("level", "WARN"), m.get("message", "")
+            ),
+        }
+        handler = handlers.get(msg_type)
+        if handler is not None:
+            handler(msg)
+        elif msg.get("identifier") == "FEEDBACK":
             data = msg.get("data", {})
             if isinstance(data, dict) and "valve" in data and "action" in data:
                 self._apply_valve_state(data["valve"], data["action"])
-        elif msg_type == "armed":
-            self.set_armed(bool(msg.get("armed", False)))
-        elif msg_type == "remote_data_list":
-            self._handle_remote_data_list_msg(msg)
-        elif msg_type == "remote_data_content":
-            self._handle_remote_data_content_msg(msg)
-        elif msg_type == "alert":
-            self.log(msg.get("level", "WARN"), msg.get("message", ""))
 
     # live WebSocket telemetry ingestion & file loading
 
