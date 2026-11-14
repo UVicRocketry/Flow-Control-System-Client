@@ -105,7 +105,7 @@ Kirigami.Dialog {
         root.open();
     }
 
-    title: "Configure Graph Card"
+    title: root.targetIndex < 0 ? "Add Graph Card" : "Configure Graph Card"
     preferredWidth: Kirigami.Units.gridUnit * 27
     padding: Kirigami.Units.largeSpacing
     standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel

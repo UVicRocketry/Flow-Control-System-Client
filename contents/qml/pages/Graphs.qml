@@ -202,13 +202,32 @@ ColumnLayout {
     }
 
     function addNewGraphCard() {
-        var ch = graphsRoot.availableChannels.length > 0 ? graphsRoot.availableChannels[graphsModel.count % graphsRoot.availableChannels.length] : {
-            "key": "P_RUN_TANK",
-            "title": "New Telemetry Graph",
-            "unit": "PSI",
-            "color": "theme:highlight"
-        };
-        graphsModel.append({
+        var existingKeys = ({
+        });
+        for (let i = 0; i < graphsModel.count; ++i) {
+            existingKeys[graphsModel.get(i).channelKey] = true;
+        }
+        var missingChannels = [];
+        for (let i = 0; i < graphsRoot.availableChannels.length; ++i) {
+            let candidate = graphsRoot.availableChannels[i];
+            if (!existingKeys[candidate.key])
+                missingChannels.push(candidate);
+
+        }
+        var ch;
+        if (missingChannels.length > 0) {
+            ch = missingChannels[0];
+        } else if (graphsRoot.availableChannels.length > 0) {
+            ch = graphsRoot.availableChannels[Math.floor(Math.random() * graphsRoot.availableChannels.length)];
+        } else {
+            ch = {
+                "key": "P_RUN_TANK",
+                "title": "New Telemetry Graph",
+                "unit": "PSI",
+                "color": "theme:highlight"
+            };
+        }
+        var draftCard = {
             "title": ch.title || ch.key,
             "channelKey": ch.key,
             "xAxisLabel": "Time (s)",
@@ -217,17 +236,14 @@ ColumnLayout {
             "autoScale": true,
             "manualMinY": 0,
             "manualMaxY": 1000,
-            "minYRange": 10,
             "filterOutliers3Std": graphsRoot.global3StdFilter,
             "smoothingWindow": 1,
             "maxBuckets": 300,
             "showGrid": true,
             "showFill": true,
-            "colSpan": 1,
-            "cardHeight": graphsRoot.placeholderRowHeight
-        });
-        syncRowHeights(graphsModel.count - 1, graphsRoot.placeholderRowHeight);
-        persistGraphsConfig();
+            "colSpan": 1
+        };
+        graphEditModal.openForCard(-1, draftCard, graphsRoot.availableChannels);
     }
 
     spacing: Kirigami.Units.mediumSpacing
@@ -543,6 +559,29 @@ ColumnLayout {
         id: graphEditModal
 
         onSettingsApplied: function(idx, cfg) {
+            if (idx === -1) {
+                graphsModel.append({
+                    "title": cfg.title,
+                    "channelKey": cfg.channelKey,
+                    "xAxisLabel": cfg.xAxisLabel,
+                    "yAxisLabel": cfg.yAxisLabel,
+                    "accentColor": cfg.accentColor,
+                    "autoScale": cfg.autoScale,
+                    "manualMinY": cfg.manualMinY,
+                    "manualMaxY": cfg.manualMaxY,
+                    "minYRange": 10,
+                    "filterOutliers3Std": cfg.filterOutliers3Std,
+                    "smoothingWindow": cfg.smoothingWindow,
+                    "maxBuckets": cfg.maxBuckets,
+                    "showGrid": cfg.showGrid,
+                    "showFill": cfg.showFill,
+                    "colSpan": cfg.colSpan,
+                    "cardHeight": graphsRoot.placeholderRowHeight
+                });
+                graphsRoot.syncRowHeights(graphsModel.count - 1, graphsRoot.placeholderRowHeight);
+                graphsRoot.persistGraphsConfig();
+                return ;
+            }
             if (idx < 0 || idx >= graphsModel.count)
                 return ;
 
