@@ -24,7 +24,10 @@ def register_channel_if_missing(known_channels: dict, key: str) -> bool:
     unit = (
         "PSI"
         if key.startswith("P_")
-        else ("°C" if key.startswith("T_") else ("lbf" if key.startswith("L_") else ""))
+        else (
+            "°C" if key.startswith("T_")
+            else ("lbf" if key.startswith("L_") else "")
+        )
     )
     color = (
         "theme:highlight"
@@ -55,6 +58,41 @@ def list_available_channels(known_channels: dict) -> list:
     return [format_channel_meta(known_channels, key) for key in known_channels]
 
 
+def _extract_ws_seconds(data_obj: dict) -> float:
+    raw_sec = data_obj.get("seconds")
+    if raw_sec is None:
+        raw_sec = data_obj.get("uptime", data_obj.get("time", time.time()))
+    try:
+        return float(raw_sec)
+    except (ValueError, TypeError):
+        return time.time()
+
+
+def _parse_ws_telemetry_line(line: str) -> tuple[dict, dict, float] | None:
+    line = line.strip()
+    if not line:
+        return None
+    try:
+        msg = json.loads(line)
+    except Exception:
+        return None
+
+    if not isinstance(msg, dict):
+        return None
+
+    msg_type = msg.get("type", "")
+    if msg_type and msg_type != "telemetry":
+        return None
+
+    raw_data = msg.get("data")
+    data_obj = raw_data if isinstance(raw_data, dict) else msg
+    values = extract_flat_values(data_obj)
+    if not values:
+        return None
+
+    return data_obj, values, _extract_ws_seconds(data_obj)
+
+
 def ingest_ws_telemetry_frames(
     raw_message: str,
     known_channels: dict,
@@ -65,8 +103,8 @@ def ingest_ws_telemetry_frames(
 ) -> tuple[bool, list, float | None, dict]:
     """
     parses incoming WebSocket text frames (supporting both single JSON packets
-    and multi-line JSONL streams) and appends samples to live_records using 'seconds'.
-    returns (new_channels_added, ingested_records, updated_live_t0, updated_latest_telemetry).
+    and multi-line JSONL streams) and appends samples to live_records.
+    returns (new_channels_added, ingested_records, live_t0, latest_telemetry).
     """
     if not raw_message:
         return False, [], live_t0, latest_telemetry
@@ -75,35 +113,12 @@ def ingest_ws_telemetry_frames(
     ingested_records = []
 
     for line in raw_message.splitlines():
-        line = line.strip()
-        if not line:
+        parsed = _parse_ws_telemetry_line(line)
+        if parsed is None:
             continue
-        try:
-            msg = json.loads(line)
-        except Exception:
-            continue
+        data_obj, values, sec_val = parsed
 
-        if not isinstance(msg, dict):
-            continue
-
-        msg_type = msg.get("type", "")
-        if msg_type and msg_type != "telemetry":
-            continue
-
-        data_obj = msg.get("data", msg) if isinstance(msg.get("data"), dict) else msg
-        values = extract_flat_values(data_obj)
-        if not values:
-            continue
-
-        raw_sec = data_obj.get("seconds")
-        if raw_sec is None:
-            raw_sec = data_obj.get("uptime", data_obj.get("time", time.time()))
-        try:
-            sec_val = float(raw_sec)
-        except (ValueError, TypeError):
-            sec_val = time.time()
-
-        # anchor live_t0 on first epoch-style value so live plots start near t=0s
+        # anchor live_t0 on first epoch value so live plots start near t=0s
         if live_t0 is None:
             live_t0 = sec_val if sec_val > 1e6 else 0.0
         rel_s = sec_val - live_t0 if live_t0 > 0 else sec_val
@@ -135,13 +150,14 @@ def _compute_window_bounds(
     """
     computes (win_start, win_end) for a query.
     in live/preset mode (t_end <= 0), locks (win_end - win_start) to the full
-    chosen window_sec so the X-axis never autoscales or stretches as data arrives.
+    chosen window_sec so the X-axis never autoscales or stretches.
     """
     if not seconds_list:
         if t_end <= 0.0:
-            w = abs(t_start) if (t_start != 0.0 and abs(t_start) < 99999.0) else 30.0
-            return 0.0, w
-        return min(t_start, t_end), max(min(t_start, t_end) + 1.0, max(t_start, t_end))
+            has_w = t_start != 0.0 and abs(t_start) < 99999.0
+            return 0.0, abs(t_start) if has_w else 30.0
+        lo = min(t_start, t_end)
+        return lo, max(lo + 1.0, max(t_start, t_end))
 
     dataset_min_t = seconds_list[0]
     dataset_max_t = seconds_list[-1]
@@ -163,64 +179,10 @@ def _compute_window_bounds(
     return win_start, win_end
 
 
-def _series_from_sliced_records(
-    sliced: list,
-    channel: str,
-    win_start: float,
-    win_end: float,
-    max_buckets: int = 300,
-    filter_outliers_3std: bool = False,
-    smoothing_window: int = 1,
-) -> dict:
-    """computes a single channel's downsampled & smoothed series from a pre-sliced window."""
-    empty_res = {
-        "points": [],
-        "min": 0.0,
-        "max": 100.0,
-        "mean": 0.0,
-        "std": 0.0,
-        "latest": 0.0,
-        "rawCount": 0,
-        "filteredCount": 0,
-        "bucketCount": 0,
-        "tMin": win_start,
-        "tMax": max(win_start + 1e-3, win_end),
-    }
-    if not sliced or not channel:
-        return empty_res
-
-    raw_pts = []
-    for r in sliced:
-        v = r["values"].get(channel)
-        if v is not None:
-            raw_pts.append((r["t"], float(v)))
-
-    raw_n = len(raw_pts)
-    if raw_n == 0:
-        return empty_res
-
-    sum_v = sum(p[1] for p in raw_pts)
-    mean_v = sum_v / raw_n
-    variance = (
-        sum((p[1] - mean_v) ** 2 for p in raw_pts) / raw_n if raw_n > 1 else 0.0
-    )
-    std_v = math.sqrt(variance)
-
-    if filter_outliers_3std and std_v > 1e-6 and raw_n >= 4:
-        threshold = 3.0 * std_v
-        filtered_pts = [p for p in raw_pts if abs(p[1] - mean_v) <= threshold]
-        if not filtered_pts:
-            filtered_pts = raw_pts
-    else:
-        filtered_pts = raw_pts
-
-    filtered_n = len(filtered_pts)
-    clean_min = min(p[1] for p in filtered_pts)
-    clean_max = max(p[1] for p in filtered_pts)
-    clean_mean = sum(p[1] for p in filtered_pts) / filtered_n
-    latest_v = filtered_pts[-1][1]
-
-    # fixed timespan buckets anchored to t=0 so sliding live windows never warble
+def _bucket_filtered_points(
+    filtered_pts: list, win_start: float, win_end: float, max_buckets: int
+) -> list:
+    # fixed timespan buckets anchored to t=0 so live windows never warble
     max_b = max(10, int(max_buckets))
     dt_span = max(win_end - win_start, 1e-3)
     bucket_size = dt_span / float(max_b)
@@ -256,6 +218,71 @@ def _series_from_sliced_records(
                 "count": b_cnt,
             }
         )
+    return bucketed
+
+
+def _series_from_sliced_records(
+    sliced: list,
+    channel: str,
+    win_start: float,
+    win_end: float,
+    max_buckets: int = 300,
+    filter_outliers_3std: bool = False,
+    smoothing_window: int = 1,
+) -> dict:
+    """computes a channel's downsampled & smoothed series from a window."""
+    empty_res = {
+        "points": [],
+        "min": 0.0,
+        "max": 100.0,
+        "mean": 0.0,
+        "std": 0.0,
+        "latest": 0.0,
+        "rawCount": 0,
+        "filteredCount": 0,
+        "bucketCount": 0,
+        "tMin": win_start,
+        "tMax": max(win_start + 1e-3, win_end),
+    }
+    if not sliced or not channel:
+        return empty_res
+
+    raw_pts = []
+    for r in sliced:
+        v = r["values"].get(channel)
+        if v is not None:
+            raw_pts.append((r["t"], float(v)))
+
+    raw_n = len(raw_pts)
+    if raw_n == 0:
+        return empty_res
+
+    sum_v = sum(p[1] for p in raw_pts)
+    mean_v = sum_v / raw_n
+    variance = (
+        sum((p[1] - mean_v) ** 2 for p in raw_pts) / raw_n
+        if raw_n > 1
+        else 0.0
+    )
+    std_v = math.sqrt(variance)
+
+    if filter_outliers_3std and std_v > 1e-6 and raw_n >= 4:
+        threshold = 3.0 * std_v
+        filtered_pts = [p for p in raw_pts if abs(p[1] - mean_v) <= threshold]
+        if not filtered_pts:
+            filtered_pts = raw_pts
+    else:
+        filtered_pts = raw_pts
+
+    filtered_n = len(filtered_pts)
+    clean_min = min(p[1] for p in filtered_pts)
+    clean_max = max(p[1] for p in filtered_pts)
+    clean_mean = sum(p[1] for p in filtered_pts) / filtered_n
+    latest_v = filtered_pts[-1][1]
+
+    bucketed = _bucket_filtered_points(
+        filtered_pts, win_start, win_end, max_buckets
+    )
 
     sw = max(1, int(smoothing_window))
     if sw > 1 and len(bucketed) > 1:
@@ -296,8 +323,8 @@ def query_channel_series(
     smoothing_window: int = 1,
 ) -> dict:
     """
-    computes windowed, optionally 3-std outlier-filtered, fixed-timespan bucketed,
-    and moving-average smoothed time-series points for a given channel.
+    computes windowed, optionally 3-std outlier-filtered, fixed-timespan
+    bucketed, and moving-average smoothed time-series points for a channel.
     """
     win_start, win_end = _compute_window_bounds(seconds_list, t_start, t_end)
     if not records or not seconds_list or not channel:
@@ -339,7 +366,9 @@ def query_batch_channels(
 
         bounds_key = (t_start, t_end)
         if bounds_key not in slice_cache:
-            w_start, w_end = _compute_window_bounds(seconds_list, t_start, t_end)
+            w_start, w_end = _compute_window_bounds(
+                seconds_list, t_start, t_end
+            )
             if records and seconds_list:
                 i_left = bisect.bisect_left(seconds_list, w_start)
                 i_right = bisect.bisect_right(seconds_list, w_end)
