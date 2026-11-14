@@ -108,6 +108,7 @@ class Backend(QtCore.QObject):
     disconnected = QtCore.Signal()
     websocket_closed = QtCore.Signal()
     recording_changed = QtCore.Signal(bool)
+    server_recording_active_on_connect = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -115,6 +116,7 @@ class Backend(QtCore.QObject):
         self._armed = False
         self._ws_connected = False
         self._recording = False
+        self._prompted_server_recording = False
         self._record_file_path = None
         self._record_columns = []
         self._record_sample_count = 0
@@ -458,6 +460,22 @@ class Backend(QtCore.QObject):
             self.refresh_remote_data()
         self.log_info(f'Stopped recording "{fname}" ({count} samples saved).')
 
+    @QtCore.Slot(str)
+    def pull_server_recording_state(self, filename: str = ""):
+        """Requests server's active recording CSV to populate live memory."""
+        if not self._ws_connected:
+            self.log_warn("Cannot pull server recording while disconnected.")
+            return
+        clean_name = Path(str(filename)).name if filename else ""
+        payload = {
+            "type": "remote_data_req",
+            "operation": "get",
+            "filename": clean_name,
+            "mode": "pull_recording",
+        }
+        self.ws_send_requested.emit(json.dumps(payload))
+        self.log_info("Pulling current recorded state from server...")
+
     # actuator & safety state
 
     @staticmethod
@@ -532,6 +550,7 @@ class Backend(QtCore.QObject):
         was_connected = self._ws_connected
         self._ws_connected = connected
         if connected and not was_connected:
+            self._prompted_server_recording = False
             self.refresh_remote_data()
             if self._recording and self._record_file_path:
                 payload = {
@@ -542,6 +561,7 @@ class Backend(QtCore.QObject):
                 }
                 self.ws_send_requested.emit(json.dumps(payload))
         elif not connected:
+            self._prompted_server_recording = False
             self.set_armed(False)
             if was_connected:
                 self.disconnected.emit()
@@ -769,6 +789,16 @@ class Backend(QtCore.QObject):
             self._apply_actuator_definitions(valves_payload)
         elif isinstance(valves_payload, dict):
             self._apply_valves_map(valves_payload)
+        if (
+            bool(msg.get("recording", False))
+            and not self._recording
+            and not self._prompted_server_recording
+        ):
+            self._prompted_server_recording = True
+            rec_name = str(
+                msg.get("recording_filename") or msg.get("active_log") or ""
+            )
+            self.server_recording_active_on_connect.emit(rec_name)
 
     def _handle_valve_state_msg(self, msg: dict):
         if "valve" in msg and "state" in msg:
@@ -789,10 +819,32 @@ class Backend(QtCore.QObject):
         self._remote_data = parsed_names
         self.remote_data_changed.emit()
 
+    def _apply_pulled_recording_file(self, fname: str, dest_path: Path):
+        """Populates live telemetry in memory from a pulled server file."""
+        records, seconds_list, cols = parse_telemetry_file(dest_path)
+        new_ch = False
+        for c in cols:
+            if register_channel_if_missing(self._known_channels, c):
+                new_ch = True
+        self._live_records = list(records)
+        self._live_seconds = list(seconds_list)
+        if records:
+            last = records[-1]
+            self._latest_telemetry = dict(last)
+        if new_ch:
+            self.channels_changed.emit()
+        self.telemetry_changed.emit()
+        self.log_info(
+            f'Pulled current recorded state from "{fname}" '
+            f"({len(records)} samples)."
+        )
+
     def _handle_remote_data_content_msg(self, msg: dict):
         fname = Path(str(msg.get("filename", ""))).name
         content = msg.get("content", "")
         req_mode = str(msg.get("mode", "download")).lower()
+        if not fname and req_mode == "pull_recording":
+            fname = f"telemetry_pull_{time.strftime('%Y_%m_%d_%H%M%S')}.csv"
         if not fname:
             return
         dest_dir = CONFIG_DIR / "data"
@@ -804,6 +856,8 @@ class Backend(QtCore.QObject):
             self.refresh_local_data()
             if req_mode == "load":
                 self._load_resolved_file("remote", fname, dest_path)
+            elif req_mode == "pull_recording":
+                self._apply_pulled_recording_file(fname, dest_path)
             else:
                 self.log_info(f'Downloaded "{fname}" to local data.')
         except Exception as err:

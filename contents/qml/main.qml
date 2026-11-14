@@ -298,6 +298,38 @@ Kirigami.ApplicationWindow {
             }
         }
 
+        Kirigami.PromptDialog {
+            id: serverRecordingDialog
+
+            property string recordingFilename: ""
+
+            title: "Server Recording In Progress"
+            subtitle: "The server is currently recording telemetry" + (recordingFilename ? " (\"" + recordingFilename + "\")" : "") + ".\nWould you like to pull the current recorded state into your live session, or wait for recording to stop while logging incoming data in memory?"
+            standardButtons: Kirigami.Dialog.NoButton
+            customFooterActions: [
+                Kirigami.Action {
+                    text: "Pull Recorded State"
+                    icon.name: "download"
+                    onTriggered: {
+                        if (backend)
+                            backend.pull_server_recording_state(serverRecordingDialog.recordingFilename);
+
+                        serverRecordingDialog.close();
+                    }
+                },
+                Kirigami.Action {
+                    text: "Wait & Log in Memory"
+                    icon.name: "chronometer"
+                    onTriggered: {
+                        if (backend)
+                            backend.log_info("Waiting for server recording to finish; logging live telemetry in memory.");
+
+                        serverRecordingDialog.close();
+                    }
+                }
+            ]
+        }
+
         Connections {
             function onLog_sent(level: string, msg: string) {
                 let now = new Date();
@@ -319,6 +351,11 @@ Kirigami.ApplicationWindow {
 
             function onWs_send_requested(payload: string) {
                 root.sendTextMessage(payload);
+            }
+
+            function onServer_recording_active_on_connect(filename: string) {
+                serverRecordingDialog.recordingFilename = filename || "";
+                serverRecordingDialog.open();
             }
 
             target: backend
