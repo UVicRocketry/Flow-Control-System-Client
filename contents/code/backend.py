@@ -412,6 +412,11 @@ class Backend(QtCore.QObject):
         return self._recording
 
     def _start_recording(self):
+        if not self._ws_connected:
+            self.log_warn("Cannot record telemetry while server is offline.")
+            self.recording_changed.emit(self._recording)
+            return
+
         ts = time.strftime("%Y_%m_%d_%H%M%S")
         dest_path = CONFIG_DIR / "data" / f"telemetry_{ts}.csv"
         try:
@@ -435,11 +440,8 @@ class Backend(QtCore.QObject):
             "filename": dest_path.name,
         }
         self.ws_send_requested.emit(json.dumps(payload))
-        suffix = (
-            " and on server." if self._ws_connected else " (server offline)."
-        )
         self.log_info(
-            f'Recording telemetry to "{dest_path.name}" locally{suffix}'
+            f'Recording telemetry to "{dest_path.name}" locally and on server.'
         )
 
     def _stop_recording(self):
@@ -563,6 +565,11 @@ class Backend(QtCore.QObject):
         elif not connected:
             self._prompted_server_recording = False
             self.set_armed(False)
+            if self._recording:
+                self._stop_recording()
+                self.log_warn(
+                    "Server went offline; telemetry recording stopped."
+                )
             if was_connected:
                 self.disconnected.emit()
                 self.websocket_closed.emit()
@@ -819,7 +826,9 @@ class Backend(QtCore.QObject):
         self._remote_data = parsed_names
         self.remote_data_changed.emit()
 
-    def _apply_pulled_recording_file(self, fname: str, dest_path: Path):
+    def _apply_pulled_recording_file(
+        self, fname: str, dest_path: Path, overwrote: bool = False
+    ):
         """Populates live telemetry in memory from a pulled server file."""
         records, seconds_list, cols = parse_telemetry_file(dest_path)
         new_ch = False
@@ -834,9 +843,10 @@ class Backend(QtCore.QObject):
         if new_ch:
             self.channels_changed.emit()
         self.telemetry_changed.emit()
+        suffix = ", overwrote existing local log" if overwrote else ""
         self.log_info(
             f'Pulled current recorded state from "{fname}" '
-            f"({len(records)} samples)."
+            f"({len(records)} samples{suffix})."
         )
 
     def _handle_remote_data_content_msg(self, msg: dict):
@@ -851,13 +861,19 @@ class Backend(QtCore.QObject):
         try:
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest_path = dest_dir / fname
+            overwrote = dest_path.exists()
             with open(dest_path, "w", encoding="utf-8") as f:
                 f.write(str(content))
+            if overwrote:
+                self._loaded_datasets.pop(f"local:{fname}", None)
+                self._loaded_datasets.pop(f"remote:{fname}", None)
             self.refresh_local_data()
             if req_mode == "load":
                 self._load_resolved_file("remote", fname, dest_path)
             elif req_mode == "pull_recording":
-                self._apply_pulled_recording_file(fname, dest_path)
+                self._apply_pulled_recording_file(
+                    fname, dest_path, overwrote=overwrote
+                )
             else:
                 self.log_info(f'Downloaded "{fname}" to local data.')
         except Exception as err:

@@ -68,6 +68,7 @@ Kirigami.ApplicationWindow {
                     id: recordBtn
 
                     property bool isRecording: backend ? backend.recording : false
+                    property bool serverOnline: sharedWebSocket.status === WebSocket.Open
 
                     checkable: true
                     checked: isRecording
@@ -75,6 +76,8 @@ Kirigami.ApplicationWindow {
                     padding: Kirigami.Units.smallSpacing
                     leftPadding: Kirigami.Units.mediumSpacing
                     rightPadding: Kirigami.Units.mediumSpacing
+                    Controls.ToolTip.visible: hovered && !serverOnline
+                    Controls.ToolTip.text: "Server offline — connect to record telemetry"
                     onClicked: {
                         if (backend)
                             recordBtn.isRecording = backend.toggle_recording();
@@ -91,6 +94,7 @@ Kirigami.ApplicationWindow {
 
                     contentItem: RowLayout {
                         spacing: Kirigami.Units.smallSpacing
+                        opacity: recordBtn.serverOnline || recordBtn.isRecording ? 1.0 : 0.5
 
                         Kirigami.Icon {
                             source: "keyframe-record"
@@ -321,7 +325,7 @@ Kirigami.ApplicationWindow {
             property string recordingFilename: ""
 
             title: "Server Recording In Progress"
-            subtitle: "The server is currently recording telemetry" + (recordingFilename ? " (\"" + recordingFilename + "\")" : "") + ".\nWould you like to pull the current recorded state into your live session, or wait for recording to stop while logging incoming data in memory?"
+            subtitle: "The server is currently recording telemetry" + (recordingFilename ? " (\"" + recordingFilename + "\")" : "") + ".\nWould you like to pull the current recorded state into your live session, or wait for recording to stop while logging incoming data in memory?" + (recordingFilename && backend && backend.local_data.indexOf(recordingFilename) !== -1 ? "\n\nNote: A local logfile for \"" + recordingFilename + "\" already exists and will be overwritten if you pull." : "")
             standardButtons: Kirigami.Dialog.NoButton
             customFooterActions: [
                 Kirigami.Action {
