@@ -12,13 +12,14 @@ Item {
     required property bool poppedOut
     required property bool splitViewActive
     property real minimumPaneWidth: Kirigami.Units.gridUnit * 24
+    property real preferredPaneWidth: Kirigami.Units.gridUnit * 34
     readonly property alias pageHost: pageHostColumn
 
     signal returnRequested(string pageName)
 
     Layout.fillWidth: true
     Layout.fillHeight: true
-    Layout.preferredWidth: Kirigami.Units.gridUnit * 34
+    Layout.preferredWidth: root.preferredPaneWidth
     Layout.minimumWidth: root.splitViewActive ? root.minimumPaneWidth : 0
 
     ColumnLayout {

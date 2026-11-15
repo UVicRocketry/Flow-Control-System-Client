@@ -13,6 +13,7 @@ ColumnLayout {
     property real windowSeconds: 30
     property bool editLayoutMode: false
     property bool global3StdFilter: false
+    property bool inLeftSplitPane: false
     // works as loaded file metadata & range slider state
     property string loadedFileName: ""
     property int loadedSampleCount: 0
@@ -374,11 +375,11 @@ ColumnLayout {
         id: graphsModel
     }
 
-    // scrollable grid of GraphCards + add graph button with dedicated scrollbar alongside
+    // scrollable grid of GraphCards + add graph button with dedicated scrollbar column alongside
     RowLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        spacing: 0
+        spacing: Kirigami.Units.smallSpacing
 
         Flickable {
             id: graphsFlick
@@ -533,16 +534,32 @@ ColumnLayout {
 
         }
 
-        Controls.ScrollBar {
-            id: graphsScrollBar
+        Item {
+            id: graphsScrollBarColumn
 
-            Layout.fillHeight: true
-            Layout.leftMargin: (Kirigami.Units.gridUnit / 2) - implicitWidth
-            Layout.rightMargin: -(Kirigami.Units.gridUnit / 2)
-            orientation: Qt.Vertical
-            policy: graphsRoot.visible ? Controls.ScrollBar.AsNeeded : Controls.ScrollBar.AlwaysOff
             visible: graphsRoot.visible && graphsFlick.contentHeight > graphsFlick.height
-            enabled: graphsRoot.visible
+            Layout.fillHeight: true
+            Layout.preferredWidth: Math.max(graphsScrollBar.implicitWidth, Kirigami.Units.gridUnit)
+            Layout.rightMargin: graphsRoot.inLeftSplitPane ? 0 : -Kirigami.Units.smallSpacing
+
+            Controls.ScrollBar {
+                id: graphsScrollBar
+
+                anchors.fill: parent
+                anchors.margins: 2
+                anchors.rightMargin: graphsRoot.inLeftSplitPane ? Kirigami.Units.mediumSpacing : 2
+                orientation: Qt.Vertical
+                policy: graphsRoot.visible ? Controls.ScrollBar.AsNeeded : Controls.ScrollBar.AlwaysOff
+                enabled: graphsRoot.visible
+            }
+
+            Kirigami.Separator {
+                visible: graphsRoot.inLeftSplitPane
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+            }
+
         }
 
     }

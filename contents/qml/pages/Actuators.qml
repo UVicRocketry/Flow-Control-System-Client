@@ -10,6 +10,7 @@ ColumnLayout {
 
     property bool keybindsEnabled: false
     property bool isWebsocketConnected: false
+    property bool inLeftSplitPane: false
     readonly property var valveDefs: backend ? backend.valve_definitions : []
     readonly property var valveStates: backend ? backend.valves : ({
     })
@@ -91,12 +92,12 @@ ColumnLayout {
 
     }
 
-    // Connected scrollable grid of ActuatorCards with dedicated scrollbar in the outer right margin
+    // Connected scrollable grid of ActuatorCards with dedicated scrollbar column alongside
     RowLayout {
         visible: actuators.isWebsocketConnected
         Layout.fillWidth: true
         Layout.fillHeight: true
-        spacing: 0
+        spacing: Kirigami.Units.smallSpacing
 
         Flickable {
             id: actuatorsFlick
@@ -150,16 +151,32 @@ ColumnLayout {
 
         }
 
-        Controls.ScrollBar {
-            id: actuatorsScrollBar
+        Item {
+            id: actuatorsScrollBarColumn
 
-            Layout.fillHeight: true
-            Layout.leftMargin: (Kirigami.Units.gridUnit / 2) - implicitWidth
-            Layout.rightMargin: -(Kirigami.Units.gridUnit / 2)
-            orientation: Qt.Vertical
-            policy: actuators.visible ? Controls.ScrollBar.AsNeeded : Controls.ScrollBar.AlwaysOff
             visible: actuators.visible && actuatorsFlick.contentHeight > actuatorsFlick.height
-            enabled: actuators.visible
+            Layout.fillHeight: true
+            Layout.preferredWidth: Math.max(actuatorsScrollBar.implicitWidth, Kirigami.Units.gridUnit)
+            Layout.rightMargin: graphsRoot.inLeftSplitPane ? 0 : -Kirigami.Units.smallSpacing
+
+            Controls.ScrollBar {
+                id: actuatorsScrollBar
+
+                anchors.fill: parent
+                anchors.margins: 2
+                anchors.rightMargin: graphsRoot.inLeftSplitPane ? Kirigami.Units.mediumSpacing : 2
+                orientation: Qt.Vertical
+                policy: actuators.visible ? Controls.ScrollBar.AsNeeded : Controls.ScrollBar.AlwaysOff
+                enabled: actuators.visible
+            }
+
+            Kirigami.Separator {
+                visible: actuators.inLeftSplitPane
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+            }
+
         }
 
     }

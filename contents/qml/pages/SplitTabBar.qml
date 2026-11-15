@@ -12,13 +12,14 @@ Controls.ToolBar {
     required property string paneSide
     required property string pageTitle
     required property bool focused
+    property real preferredTabWidth: Kirigami.Units.gridUnit * 34
 
     signal swapRequested()
     signal closeRequested()
     signal focusRequested()
 
     Layout.fillWidth: true
-    Layout.preferredWidth: Kirigami.Units.gridUnit * 34
+    Layout.preferredWidth: root.preferredTabWidth
     Layout.minimumWidth: 0
     padding: Kirigami.Units.smallSpacing / 2
     leftPadding: Kirigami.Units.smallSpacing / 2
