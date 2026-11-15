@@ -16,14 +16,9 @@ ListView {
     signal openInNewWindowRequested(string pageName)
 
     function isPageActive(pageName) {
-        if (root.visiblePages && root.visiblePages.length > 0) {
-            for (let i = 0; i < root.visiblePages.length; ++i) {
-                if (root.visiblePages[i] === pageName)
-                    return true;
+        if (root.visiblePages && root.visiblePages.length > 0)
+            return root.visiblePages.indexOf(pageName) !== -1;
 
-            }
-            return false;
-        }
         return root.activePageName === pageName;
     }
 
@@ -36,34 +31,34 @@ ListView {
     // 1. group by the model's 'category' field
     section.property: "category"
     section.criteria: ViewSection.FullString
-    spacing: Kirigami.Units.smallSpacing
+    spacing: 0
 
     model: ListModel {
         ListElement {
             category: "Views"
             name: "Data sources"
-            icon: "computer"
+            iconName: "computer"
             page: "dashboard"
         }
 
         ListElement {
             category: "Views"
             name: "Valve actuators"
-            icon: "network-wired"
+            iconName: "network-wired"
             page: "actuators"
         }
 
         ListElement {
             category: "Views"
             name: "Graphs"
-            icon: "utilities-system-monitor"
+            iconName: "utilities-system-monitor"
             page: "graphs"
         }
 
         ListElement {
             category: "Views"
             name: "Video"
-            icon: "camera-video"
+            iconName: "camera-video"
             page: "video"
         }
 
@@ -76,24 +71,33 @@ ListView {
     }
 
     // 3. item delegate (highlights all currently visible views when multiple pages are open)
-    delegate: Controls.ToolButton {
+    delegate: Controls.ItemDelegate {
         id: navBtn
 
+        required property string name
+        required property string iconName
+        required property string page
         property int lastModifiers: Qt.NoModifier
 
         width: ListView.view.width
-        highlighted: root.isPageActive(model.page)
+        text: name
+        icon.name: iconName
+        icon.color: "transparent"
+        icon.width: Kirigami.Units.iconSizes.smallMedium
+        icon.height: Kirigami.Units.iconSizes.smallMedium
+        font.bold: highlighted
+        highlighted: root.isPageActive(page)
         onClicked: {
             var mods = navBtn.lastModifiers;
             navBtn.lastModifiers = Qt.NoModifier;
             if (mods & Qt.AltModifier)
-                root.openInNewWindowRequested(model.page);
+                root.openInNewWindowRequested(page);
             else if (mods & Qt.ControlModifier)
-                root.openInRightRequested(model.page);
+                root.openInRightRequested(page);
             else if (mods & Qt.ShiftModifier)
-                root.openInLeftRequested(model.page);
+                root.openInLeftRequested(page);
             else
-                root.navigateRequested(model.page);
+                root.navigateRequested(page);
         }
 
         MouseArea {
@@ -116,42 +120,19 @@ ListView {
             Controls.MenuItem {
                 text: "Open in left panel (Shift+Click)"
                 icon.name: "go-previous"
-                onTriggered: root.openInLeftRequested(model.page)
+                onTriggered: root.openInLeftRequested(navBtn.page)
             }
 
             Controls.MenuItem {
                 text: "Open in right panel (Ctrl+Click)"
                 icon.name: "go-next"
-                onTriggered: root.openInRightRequested(model.page)
+                onTriggered: root.openInRightRequested(navBtn.page)
             }
 
             Controls.MenuItem {
                 text: "Open in new window (Alt+Click)"
                 icon.name: "window-new"
-                onTriggered: root.openInNewWindowRequested(model.page)
-            }
-
-        }
-
-        RowLayout {
-            spacing: Kirigami.Units.largeSpacing
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.left: parent.left
-            anchors.leftMargin: Kirigami.Units.gridUnit / 2
-
-            Kirigami.Icon {
-                source: model.icon
-                implicitWidth: Kirigami.Units.iconSizes.smallMedium
-                implicitHeight: Kirigami.Units.iconSizes.smallMedium
-                Layout.alignment: Qt.AlignVCenter
-            }
-
-            Controls.Label {
-                elide: Text.ElideRight
-                text: model.name
-                font.bold: navBtn.highlighted
-                Layout.fillWidth: true
-                Layout.alignment: Qt.AlignVCenter
+                onTriggered: root.openInNewWindowRequested(navBtn.page)
             }
 
         }

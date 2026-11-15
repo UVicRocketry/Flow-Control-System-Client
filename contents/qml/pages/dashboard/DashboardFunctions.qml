@@ -32,13 +32,7 @@ QtObject {
             if (extArr !== null)
                 rawExt = extArr;
         }
-        return rawExt.filter(function(item) {
-            return item !== null && item !== undefined && String(item).trim() !== "";
-        }).map(function(item) {
-            var strItem = String(item);
-            var k = dataKey("external", strItem);
-            return renamedDataMap[k] !== undefined ? renamedDataMap[k] : strItem;
-        });
+        return formatDataList(rawExt, "external");
     }
     readonly property var activeDataList: {
         var rawList = [];
@@ -48,24 +42,24 @@ QtObject {
                 rawList = localArr;
             else
                 rawList = ["run_2026_10_19_coldflow.csv", "run_2026_10_18_leakcheck.csv", "telemetry_dump_04.bin", "run_2026_10_12_purge.csv"];
-        } else {
-            if (!isWebsocketConnected) {
-                rawList = [];
-            } else {
-                var remoteArr = (typeof backend !== "undefined" && backend !== null) ? toJsArray(backend.remote_data !== undefined ? backend.remote_data : backend.remoteData) : null;
-                rawList = remoteArr !== null ? remoteArr : [];
-            }
+        } else if (isWebsocketConnected) {
+            var remoteArr = (typeof backend !== "undefined" && backend !== null) ? toJsArray(backend.remote_data !== undefined ? backend.remote_data : backend.remoteData) : null;
+            rawList = remoteArr !== null ? remoteArr : [];
         }
+        return formatDataList(rawList, effectiveDataMode);
+    }
+
+    // --- Helper Functions ---
+    function formatDataList(rawList, mode) {
         return rawList.filter(function(item) {
             return item !== null && item !== undefined && String(item).trim() !== "";
         }).map(function(item) {
             var strItem = String(item);
-            var k = dataKey(effectiveDataMode, strItem);
+            var k = dataKey(mode, strItem);
             return renamedDataMap[k] !== undefined ? renamedDataMap[k] : strItem;
         });
     }
 
-    // --- Helper Functions ---
     function toJsArray(val) {
         if (val === null || val === undefined || typeof val === "string" || typeof val.length !== "number")
             return null;

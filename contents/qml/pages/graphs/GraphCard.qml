@@ -25,35 +25,10 @@ Kirigami.Card {
     property int maxBuckets: 300
     property bool showGrid: true
     property bool showFill: true
-    // theme-aware resolved colour (updates automatically when Kirigami.Theme changes)
-    readonly property color resolvedColor: {
-        var key = String(root.accentColor || "theme:highlight");
-        if (key === "theme:highlight")
-            return Kirigami.Theme.highlightColor;
-
-        if (key === "theme:positive")
-            return Kirigami.Theme.positiveTextColor;
-
-        if (key === "theme:neutral")
-            return Kirigami.Theme.neutralTextColor;
-
-        if (key === "theme:negative")
-            return Kirigami.Theme.negativeTextColor;
-
-        if (key === "theme:active")
-            return Kirigami.Theme.activeTextColor;
-
-        if (key === "theme:link")
-            return Kirigami.Theme.linkColor;
-
-        if (key === "theme:visited")
-            return Kirigami.Theme.visitedLinkColor;
-
-        if (key === "theme:text")
-            return Kirigami.Theme.textColor;
-
-        return key;
+    readonly property GraphColorHelper colorHelper: GraphColorHelper {
     }
+    // theme-aware resolved colour (updates automatically when Kirigami.Theme changes)
+    readonly property color resolvedColor: colorHelper.resolve(root.accentColor)
     // layout & resizing properties (fixedCardWidth locks card width to colSpan so content changes never cause warbling)
     property bool editLayoutMode: false
     property int colSpan: 1

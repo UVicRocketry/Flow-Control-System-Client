@@ -20,9 +20,7 @@ Item {
     readonly property bool isError: socket ? (socket.status === WebSocket.Error) : false
     readonly property string errorString: socket ? socket.errorString : ""
     // Server URL
-    property string currentUrl: {
-        socket && socket.url && socket.url.toString().length > 0 ? socket.url.toString() : (backend ? backend.server_url : "ws://127.0.0.1:8080/ws");
-    }
+    property string currentUrl: socket && socket.url && socket.url.toString().length > 0 ? socket.url.toString() : (backend ? backend.server_url : "ws://127.0.0.1:8080/ws")
     readonly property color statusColor: {
         if (isConnected)
             return Kirigami.Theme.positiveTextColor;
@@ -97,16 +95,6 @@ Item {
             disconnectSocket();
         else
             connectSocket(targetUrl);
-    }
-
-    function sendTextMessage(message) {
-        if (socket && isConnected)
-            socket.sendTextMessage(message);
-
-    }
-
-    function sendJson(object) {
-        sendTextMessage(JSON.stringify(object));
     }
 
     Component.onCompleted: {
@@ -211,28 +199,9 @@ Item {
                     anchors.centerIn: parent
                     spacing: Kirigami.Units.smallSpacing
 
-                    Rectangle {
-                        implicitWidth: 8
-                        implicitHeight: 8
-                        radius: 4
+                    StatusDot {
                         color: wsRoot.statusColor
-
-                        SequentialAnimation on opacity {
-                            running: wsRoot.isConnecting
-                            loops: Animation.Infinite
-
-                            PropertyAnimation {
-                                to: 0.25
-                                duration: 400
-                            }
-
-                            PropertyAnimation {
-                                to: 1
-                                duration: 400
-                            }
-
-                        }
-
+                        pulsing: wsRoot.isConnecting
                     }
 
                     Controls.Label {
@@ -271,7 +240,6 @@ Item {
 
                 }
                 leftPadding: Kirigami.Units.mediumSpacing
-                topPadding: Kirigami.Units.largeSpacing
             }
 
             // 3. Connect / Disconnect
@@ -279,7 +247,6 @@ Item {
                 id: actionButton
 
                 Layout.preferredHeight: Kirigami.Units.gridUnit * 1.8
-                implicitWidth: Kirigami.Units.iconSizes.medium + text.length * Kirigami.Units.gridUnit / 1.5
                 text: wsRoot.isConnected ? "Disconnect" : (wsRoot.isConnecting ? "Connecting" : "Connect")
                 icon.name: wsRoot.isConnected ? "network-disconnect" : "network-connect"
                 highlighted: !wsRoot.isConnected && !wsRoot.isConnecting
@@ -369,29 +336,9 @@ Item {
         contentItem: RowLayout {
             spacing: Kirigami.Units.smallSpacing
 
-            // status dot
-            Rectangle {
-                implicitWidth: 8
-                implicitHeight: 8
-                radius: 4
+            StatusDot {
                 color: wsRoot.statusColor
-
-                SequentialAnimation on opacity {
-                    running: wsRoot.isConnecting
-                    loops: Animation.Infinite
-
-                    PropertyAnimation {
-                        to: 0.25
-                        duration: 400
-                    }
-
-                    PropertyAnimation {
-                        to: 1
-                        duration: 400
-                    }
-
-                }
-
+                pulsing: wsRoot.isConnecting
             }
 
             Controls.Label {

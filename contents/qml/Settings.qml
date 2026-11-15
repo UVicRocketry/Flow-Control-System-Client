@@ -8,7 +8,9 @@ Kirigami.Dialog {
     id: root
 
     property string minLogLevel: "INFO"
+    readonly property var logLevels: ["INFO", "WARN", "ERR"]
     readonly property var refreshHzValues: [5, 10, 20, 30, 60]
+    readonly property bool hasBackend: typeof backend !== "undefined" && backend !== null
 
     signal minLogLevelUpdated(string level)
     signal autoConnectToggled(bool enabled)
@@ -18,22 +20,20 @@ Kirigami.Dialog {
     padding: Kirigami.Units.largeSpacing
     standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
     onOpened: {
-        defaultUrlField.text = (typeof backend !== "undefined" && backend) ? backend.server_url : "ws://127.0.0.1:8080/ws";
-        autoConnectCheck.checked = (typeof backend !== "undefined" && backend) ? backend.auto_reconnect : false;
-        reconnectSpin.value = (typeof backend !== "undefined" && backend) ? backend.reconnect_interval_ms : 2000;
-        var levels = ["INFO", "WARN", "ERR"];
-        var idx = levels.indexOf(root.minLogLevel);
+        defaultUrlField.text = root.hasBackend ? backend.server_url : "ws://127.0.0.1:8080/ws";
+        autoConnectCheck.checked = root.hasBackend ? backend.auto_reconnect : false;
+        reconnectSpin.value = root.hasBackend ? backend.reconnect_interval_ms : 2000;
+        var idx = root.logLevels.indexOf(root.minLogLevel);
         logLevelCombo.currentIndex = idx >= 0 ? idx : 0;
-        var currentHz = (typeof backend !== "undefined" && backend) ? backend.view_refresh_hz : 20;
+        var currentHz = root.hasBackend ? backend.view_refresh_hz : 20;
         var hzIdx = root.refreshHzValues.indexOf(currentHz);
         refreshHzCombo.currentIndex = hzIdx >= 0 ? hzIdx : 2;
     }
     onAccepted: {
-        var levels = ["INFO", "WARN", "ERR"];
-        if (logLevelCombo.currentIndex >= 0 && logLevelCombo.currentIndex < levels.length)
-            root.minLogLevelUpdated(levels[logLevelCombo.currentIndex]);
+        if (logLevelCombo.currentIndex >= 0 && logLevelCombo.currentIndex < root.logLevels.length)
+            root.minLogLevelUpdated(root.logLevels[logLevelCombo.currentIndex]);
 
-        if (typeof backend !== "undefined" && backend) {
+        if (root.hasBackend) {
             if (defaultUrlField.text.trim().length > 0)
                 backend.set_server_url(defaultUrlField.text.trim());
 
@@ -46,62 +46,32 @@ Kirigami.Dialog {
         root.autoConnectToggled(autoConnectCheck.checked);
     }
 
-    ColumnLayout {
-        spacing: Kirigami.Units.mediumSpacing
+    Kirigami.FormLayout {
+        wideMode: false
 
-        ColumnLayout {
+        Controls.ComboBox {
+            id: logLevelCombo
+
+            Kirigami.FormData.label: "Minimum Toast Severity:"
             Layout.fillWidth: true
-            spacing: 4
-
-            Controls.Label {
-                text: "Minimum Toast Severity"
-                font.bold: true
-            }
-
-            Controls.ComboBox {
-                id: logLevelCombo
-
-                Layout.fillWidth: true
-                model: ["INFO — All notifications", "WARN — Warnings & errors only", "ERR — Critical errors only"]
-            }
-
+            model: ["INFO — All notifications", "WARN — Warnings & errors only", "ERR — Critical errors only"]
         }
 
-        ColumnLayout {
+        Controls.ComboBox {
+            id: refreshHzCombo
+
+            Kirigami.FormData.label: "Plot Refresh Frequency:"
             Layout.fillWidth: true
-            spacing: 4
-
-            Controls.Label {
-                text: "Plot Refresh Frequency"
-                font.bold: true
-            }
-
-            Controls.ComboBox {
-                id: refreshHzCombo
-
-                Layout.fillWidth: true
-                model: ["5 Hz (Low CPU)", "10 Hz", "20 Hz (Default)", "30 Hz", "60 Hz"]
-            }
-
+            model: ["5 Hz (Low CPU)", "10 Hz", "20 Hz (Default)", "30 Hz", "60 Hz"]
         }
 
-        ColumnLayout {
+        Controls.TextField {
+            id: defaultUrlField
+
+            Kirigami.FormData.label: "Default Server WebSocket URL:"
             Layout.fillWidth: true
-            spacing: 4
-
-            Controls.Label {
-                text: "Default Server WebSocket URL"
-                font.bold: true
-            }
-
-            Controls.TextField {
-                id: defaultUrlField
-
-                Layout.fillWidth: true
-                font.family: "monospace"
-                placeholderText: "ws://127.0.0.1:8080/ws"
-            }
-
+            font.family: "monospace"
+            placeholderText: "ws://127.0.0.1:8080/ws"
         }
 
         Controls.CheckBox {
@@ -111,60 +81,40 @@ Kirigami.Dialog {
             text: "Auto-connect to WebSocket server"
         }
 
-        ColumnLayout {
+        Controls.SpinBox {
+            id: reconnectSpin
+
+            Kirigami.FormData.label: "Auto-Reconnect Interval (ms):"
             Layout.fillWidth: true
-            spacing: 4
-
-            Controls.Label {
-                text: "Auto-Reconnect Interval (ms)"
-                font.bold: true
-            }
-
-            Controls.SpinBox {
-                id: reconnectSpin
-
-                Layout.fillWidth: true
-                from: 500
-                to: 60000
-                stepSize: 500
-                editable: true
-            }
-
+            from: 500
+            to: 60000
+            stepSize: 500
+            editable: true
         }
 
         Kirigami.Separator {
-            Layout.fillWidth: true
+            Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: "Configuration Directory"
         }
 
-        ColumnLayout {
+        Controls.Label {
             Layout.fillWidth: true
-            spacing: 4
+            text: root.hasBackend ? backend.config_dir : ""
+            font.family: "monospace"
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            color: Kirigami.Theme.disabledTextColor
+            elide: Text.ElideMiddle
+        }
 
-            Controls.Label {
-                text: "Configuration Directory"
-                font.bold: true
+        Controls.Button {
+            Layout.fillWidth: true
+            text: "Open Configuration Folder"
+            icon.name: "folder-open"
+            onClicked: {
+                if (root.hasBackend)
+                    backend.show_in_file_browser(backend.config_dir);
+
             }
-
-            Controls.Label {
-                Layout.fillWidth: true
-                text: (typeof backend !== "undefined" && backend) ? backend.config_dir : ""
-                font.family: "monospace"
-                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                color: Kirigami.Theme.disabledTextColor
-                elide: Text.ElideMiddle
-            }
-
-            Controls.Button {
-                Layout.fillWidth: true
-                text: "Open Configuration Folder"
-                icon.name: "folder-open"
-                onClicked: {
-                    if (typeof backend !== "undefined" && backend)
-                        backend.show_in_file_browser(backend.config_dir);
-
-                }
-            }
-
         }
 
     }

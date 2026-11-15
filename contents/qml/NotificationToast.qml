@@ -68,6 +68,7 @@ Kirigami.InlineMessage {
             tooltip: "Time remaining before auto-dismiss"
             enabled: false
         },
+        // Explicit window-close Action is used instead of showCloseButton: true due to a bug in fluentwinui3
         Kirigami.Action {
             visible: root.showDismissAction
             icon.name: "window-close"

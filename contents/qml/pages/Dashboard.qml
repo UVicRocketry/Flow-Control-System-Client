@@ -185,9 +185,10 @@ ColumnLayout {
                             ws.connectSocket();
                         }
                     },
+                    // Keep explicit window-close Action instead of showCloseButton: true due to a close-button bug in fluentwinui3
                     Kirigami.Action {
                         icon.name: "window-close"
-                        onTriggered: connWarn.visible = false
+                        onTriggered: dashboard.disconnectBannerDismissed = true
                     }
                 ]
             }

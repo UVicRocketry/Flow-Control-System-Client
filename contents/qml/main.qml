@@ -20,10 +20,6 @@ Kirigami.ApplicationWindow {
 
     }
 
-    function sendJson(data) {
-        sendTextMessage(JSON.stringify(data));
-    }
-
     minimumHeight: Kirigami.Units.gridUnit * 34
     minimumWidth: Math.max(Kirigami.Units.gridUnit * 45, (root.globalDrawer ? root.globalDrawer.width : 0) + pageHelper.minimumRequiredWidth)
     title: "Flow Control System"
@@ -139,10 +135,7 @@ Kirigami.ApplicationWindow {
                             anchors.centerIn: parent
                             spacing: Kirigami.Units.smallSpacing
 
-                            Rectangle {
-                                Layout.preferredWidth: 8
-                                Layout.preferredHeight: 8
-                                radius: 4
+                            StatusDot {
                                 color: armedBadge.statusColor
                             }
 

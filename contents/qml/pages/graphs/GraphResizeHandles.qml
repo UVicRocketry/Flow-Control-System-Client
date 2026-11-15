@@ -17,6 +17,17 @@ Item {
 
     signal resizeRequested(int index, int newColSpan, real newHeight)
 
+    function computeNextSpan(startSpan, deltaX) {
+        // use single-column base width as step threshold so dragging snaps cleanly per column
+        var stepW = Math.max(160, root.baseColumnWidth);
+        var spanDelta = Math.round(deltaX / (stepW * 0.65));
+        return Math.max(1, Math.min(3, startSpan + spanDelta));
+    }
+
+    function computeNextHeight(startH, deltaY) {
+        return Math.max(210, Math.min(540, Math.round(startH + deltaY)));
+    }
+
     anchors.fill: parent
     visible: root.editLayoutMode
 
@@ -51,11 +62,7 @@ Item {
                     return ;
 
                 var curX = mapToGlobal(mouse.x, mouse.y).x;
-                var deltaX = curX - startX;
-                // use single-column base width as step threshold so dragging snaps cleanly per column
-                var stepW = Math.max(160, root.baseColumnWidth);
-                var spanDelta = Math.round(deltaX / (stepW * 0.65));
-                var nextSpan = Math.max(1, Math.min(3, startColSpan + spanDelta));
+                var nextSpan = root.computeNextSpan(startColSpan, curX - startX);
                 if (nextSpan !== root.colSpan)
                     root.resizeRequested(root.cardIndex, nextSpan, root.cardHeight);
 
@@ -95,8 +102,7 @@ Item {
                     return ;
 
                 var curY = mapToGlobal(mouse.x, mouse.y).y;
-                var nextH = Math.max(210, Math.min(540, Math.round(startHeight + (curY - startY))));
-                root.resizeRequested(root.cardIndex, root.colSpan, nextH);
+                root.resizeRequested(root.cardIndex, root.colSpan, root.computeNextHeight(startHeight, curY - startY));
             }
         }
 
@@ -147,10 +153,8 @@ Item {
                     return ;
 
                 var gp = mapToGlobal(mouse.x, mouse.y);
-                var stepW = Math.max(160, root.baseColumnWidth);
-                var spanDelta = Math.round((gp.x - startX) / (stepW * 0.65));
-                var nextSpan = Math.max(1, Math.min(3, startColSpan + spanDelta));
-                var nextH = Math.max(210, Math.min(540, Math.round(startHeight + (gp.y - startY))));
+                var nextSpan = root.computeNextSpan(startColSpan, gp.x - startX);
+                var nextH = root.computeNextHeight(startHeight, gp.y - startY);
                 root.resizeRequested(root.cardIndex, nextSpan, nextH);
             }
         }

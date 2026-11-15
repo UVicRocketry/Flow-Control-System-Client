@@ -93,24 +93,11 @@ ColumnLayout {
                     return items;
                 }
                 section.property: "section"
-                section.delegate: Rectangle {
+                section.delegate: Kirigami.ListSectionHeader {
                     required property string section
 
                     width: ListView.view.width
-                    height: Kirigami.Units.gridUnit * 1.4
-                    color: Kirigami.Theme.alternateBackgroundColor
-
-                    Controls.Label {
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.left: parent.left
-                        anchors.leftMargin: Kirigami.Units.smallSpacing
-                        text: parent.section
-                        font.bold: true
-                        font.pointSize: Kirigami.Theme.smallFont.pointSize
-                        font.capitalization: Font.AllUppercase
-                        color: Kirigami.Theme.disabledTextColor
-                    }
-
+                    text: section.toUpperCase()
                 }
 
                 Kirigami.PlaceholderMessage {

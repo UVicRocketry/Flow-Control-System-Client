@@ -24,59 +24,14 @@ Kirigami.Dialog {
     property bool editShowGrid: true
     property bool editShowFill: true
     property int editColSpan: 1
-    // colours
-    readonly property var themeColorPalette: [{
-        "key": "theme:highlight",
-        "label": "Theme Highlight"
-    }, {
-        "key": "theme:positive",
-        "label": "Theme Positive"
-    }, {
-        "key": "theme:neutral",
-        "label": "Theme Neutral"
-    }, {
-        "key": "theme:negative",
-        "label": "Theme Negative"
-    }, {
-        "key": "theme:active",
-        "label": "Theme Active"
-    }, {
-        "key": "theme:link",
-        "label": "Theme Link"
-    }, {
-        "key": "theme:visited",
-        "label": "Theme Visited"
-    }]
-    readonly property var fixedColorPalette: ["#3daee9", "#2ecc71", "#e67e22", "#e74c3c", "#f39c12", "#9b59b6", "#1abc9c", "#e84393"]
+    readonly property GraphColorHelper colorHelper: GraphColorHelper {
+    }
 
     signal settingsApplied(int index, var updatedConfig)
 
-    function resolveThemeColor(key) {
-        if (key === "theme:highlight")
-            return Kirigami.Theme.highlightColor;
-
-        if (key === "theme:positive")
-            return Kirigami.Theme.positiveTextColor;
-
-        if (key === "theme:neutral")
-            return Kirigami.Theme.neutralTextColor;
-
-        if (key === "theme:negative")
-            return Kirigami.Theme.negativeTextColor;
-
-        if (key === "theme:active")
-            return Kirigami.Theme.activeTextColor;
-
-        if (key === "theme:link")
-            return Kirigami.Theme.linkColor;
-
-        if (key === "theme:visited")
-            return Kirigami.Theme.visitedLinkColor;
-
-        if (key === "theme:text")
-            return Kirigami.Theme.textColor;
-
-        return key;
+    function selectSwatchColor(key) {
+        root.editColor = key;
+        colorHexField.text = key;
     }
 
     function openForCard(index, cardData, channels) {
@@ -198,10 +153,9 @@ Kirigami.Dialog {
                         if (ch.unit !== undefined)
                             yAxisField.text = ch.unit;
 
-                        if (ch.color) {
-                            root.editColor = ch.color;
-                            colorHexField.text = ch.color;
-                        }
+                        if (ch.color)
+                            root.selectSwatchColor(ch.color);
+
                     }
                 }
             }
@@ -233,34 +187,20 @@ Kirigami.Dialog {
                 }
 
                 Repeater {
-                    model: root.themeColorPalette
+                    model: colorHelper.themeColorPalette
 
-                    Rectangle {
+                    GraphColorSwatch {
                         required property var modelData
 
-                        width: 24
-                        height: 24
-                        radius: 6
-                        color: root.resolveThemeColor(modelData.key)
-                        border.width: colorHexField.text.toLowerCase() === modelData.key.toLowerCase() ? 2 : 1
-                        border.color: colorHexField.text.toLowerCase() === modelData.key.toLowerCase() ? Kirigami.Theme.textColor : Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.25)
-                        Controls.ToolTip.visible: themeSwatchArea.containsMouse
-                        Controls.ToolTip.text: modelData.label + " (" + modelData.key + ")"
-
-                        MouseArea {
-                            id: themeSwatchArea
-
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                root.editColor = modelData.key;
-                                colorHexField.text = modelData.key;
-                            }
+                        colorKey: modelData.key
+                        swatchColor: colorHelper.resolve(modelData.key)
+                        tooltipText: modelData.label + " (" + modelData.key + ")"
+                        selected: colorHexField.text.toLowerCase() === modelData.key.toLowerCase()
+                        swatchRadius: 6
+                        onPicked: function(key) {
+                            root.selectSwatchColor(key);
                         }
-
                     }
-
                 }
 
                 Item {
@@ -281,34 +221,21 @@ Kirigami.Dialog {
                 }
 
                 Repeater {
-                    model: root.fixedColorPalette
+                    model: colorHelper.fixedColorPalette
 
-                    Rectangle {
+                    GraphColorSwatch {
                         required property string modelData
 
-                        width: 24
-                        height: 24
-                        radius: 12
-                        color: modelData
-                        border.width: colorHexField.text.toLowerCase() === modelData.toLowerCase() ? 2 : 1
-                        border.color: colorHexField.text.toLowerCase() === modelData.toLowerCase() ? Kirigami.Theme.textColor : "transparent"
-                        Controls.ToolTip.visible: fixedSwatchArea.containsMouse
-                        Controls.ToolTip.text: modelData
-
-                        MouseArea {
-                            id: fixedSwatchArea
-
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                root.editColor = modelData;
-                                colorHexField.text = modelData;
-                            }
+                        colorKey: modelData
+                        swatchColor: modelData
+                        tooltipText: modelData
+                        selected: colorHexField.text.toLowerCase() === modelData.toLowerCase()
+                        swatchRadius: 12
+                        unselectedBorderColor: "transparent"
+                        onPicked: function(key) {
+                            root.selectSwatchColor(key);
                         }
-
                     }
-
                 }
 
                 Item {

@@ -80,10 +80,6 @@ ColumnLayout {
             width: parent.width
             spacing: Kirigami.Units.smallSpacing
 
-            DashboardViewHelper {
-                visible: root.isPageVisible("dashboard")
-            }
-
             ActuatorsViewHelper {
                 visible: root.isPageVisible("actuators")
                 keybindsEnabled: root.keybindsEnabled

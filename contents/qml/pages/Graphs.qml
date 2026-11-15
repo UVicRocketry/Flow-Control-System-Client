@@ -25,6 +25,33 @@ ColumnLayout {
     property real placeholderRowHeight: 230
     property var availableChannels: (typeof backend !== "undefined" && backend && backend.available_channels) ? backend.available_channels : []
 
+    function applyTimeRange(startT, endT) {
+        graphsRoot.rangeStart = startT;
+        graphsRoot.rangeEnd = endT;
+        timespanSlider.setValues(startT, endT);
+    }
+
+    function normalizeCardConfig(d, fallbackHeight, applyGlobal3Std) {
+        return {
+            "title": String(d.title ?? d.channelKey ?? "Graph"),
+            "channelKey": String(d.channelKey ?? ""),
+            "xAxisLabel": String(d.xAxisLabel ?? "Time (s)"),
+            "yAxisLabel": String(d.yAxisLabel ?? ""),
+            "accentColor": String(d.accentColor ?? "theme:highlight"),
+            "autoScale": d.autoScale !== undefined ? Boolean(d.autoScale) : true,
+            "manualMinY": Number(d.manualMinY ?? 0),
+            "manualMaxY": Number(d.manualMaxY ?? 1000),
+            "minYRange": Number(d.minYRange ?? 10),
+            "filterOutliers3Std": Boolean(applyGlobal3Std && graphsRoot.global3StdFilter) || Boolean(d.filterOutliers3Std ?? false),
+            "smoothingWindow": Number(d.smoothingWindow ?? 1),
+            "maxBuckets": Number(d.maxBuckets ?? 300),
+            "showGrid": d.showGrid !== undefined ? Boolean(d.showGrid) : true,
+            "showFill": d.showFill !== undefined ? Boolean(d.showFill) : true,
+            "colSpan": Number(d.colSpan ?? 1),
+            "cardHeight": Math.max(210, Number(d.cardHeight ?? fallbackHeight ?? 230))
+        };
+    }
+
     function syncLoadedMeta() {
         if (typeof backend === "undefined" || backend === null || !backend.loaded_meta)
             return ;
@@ -40,10 +67,8 @@ ColumnLayout {
         graphsRoot.datasetMinTime = minT;
         graphsRoot.datasetMaxTime = maxT;
         var startT = graphsRoot.windowSeconds >= 99999 ? minT : Math.max(minT, maxT - graphsRoot.windowSeconds);
-        graphsRoot.rangeStart = startT;
-        graphsRoot.rangeEnd = maxT;
         graphsRoot.customSpanActive = graphsRoot.loadedSampleCount > 0 && graphsRoot.dataSourceMode !== "live";
-        timespanSlider.setValues(startT, maxT);
+        applyTimeRange(startT, maxT);
         if (backend.available_channels)
             graphsRoot.availableChannels = backend.available_channels;
 
@@ -150,25 +175,7 @@ ColumnLayout {
         graphsModel.clear();
         var defaults = (typeof backend !== "undefined" && backend && backend.default_graph_cards) ? backend.default_graph_cards : [];
         for (let i = 0; i < defaults.length; ++i) {
-            let d = defaults[i];
-            graphsModel.append({
-                "title": String(d.title ?? d.channelKey ?? "Graph"),
-                "channelKey": String(d.channelKey ?? ""),
-                "xAxisLabel": String(d.xAxisLabel ?? "Time (s)"),
-                "yAxisLabel": String(d.yAxisLabel ?? ""),
-                "accentColor": String(d.accentColor ?? "theme:highlight"),
-                "autoScale": d.autoScale !== undefined ? Boolean(d.autoScale) : true,
-                "manualMinY": Number(d.manualMinY ?? 0),
-                "manualMaxY": Number(d.manualMaxY ?? 1000),
-                "minYRange": Number(d.minYRange ?? 10),
-                "filterOutliers3Std": graphsRoot.global3StdFilter || Boolean(d.filterOutliers3Std ?? false),
-                "smoothingWindow": Number(d.smoothingWindow ?? 1),
-                "maxBuckets": Number(d.maxBuckets ?? 300),
-                "showGrid": d.showGrid !== undefined ? Boolean(d.showGrid) : true,
-                "showFill": d.showFill !== undefined ? Boolean(d.showFill) : true,
-                "colSpan": Number(d.colSpan ?? 1),
-                "cardHeight": Math.max(210, Number(d.cardHeight ?? 230))
-            });
+            graphsModel.append(normalizeCardConfig(defaults[i], 230, true));
         }
         syncRowHeights(-1, 0);
     }
@@ -179,25 +186,7 @@ ColumnLayout {
 
         var cards = [];
         for (let i = 0; i < graphsModel.count; ++i) {
-            let item = graphsModel.get(i);
-            cards.push({
-                "title": String(item.title ?? ""),
-                "channelKey": String(item.channelKey ?? ""),
-                "xAxisLabel": String(item.xAxisLabel ?? "Time (s)"),
-                "yAxisLabel": String(item.yAxisLabel ?? ""),
-                "accentColor": String(item.accentColor ?? "theme:highlight"),
-                "autoScale": Boolean(item.autoScale),
-                "manualMinY": Number(item.manualMinY ?? 0),
-                "manualMaxY": Number(item.manualMaxY ?? 1000),
-                "minYRange": Number(item.minYRange ?? 10),
-                "filterOutliers3Std": Boolean(item.filterOutliers3Std),
-                "smoothingWindow": Number(item.smoothingWindow ?? 1),
-                "maxBuckets": Number(item.maxBuckets ?? 300),
-                "showGrid": Boolean(item.showGrid),
-                "showFill": Boolean(item.showFill),
-                "colSpan": Number(item.colSpan ?? 1),
-                "cardHeight": Math.max(210, Number(item.cardHeight ?? 230))
-            });
+            cards.push(normalizeCardConfig(graphsModel.get(i), 230, false));
         }
         backend.save_graphs_config(cards);
     }
@@ -326,9 +315,7 @@ ColumnLayout {
             graphsRoot.customSpanActive = true;
             let endT = graphsRoot.datasetMaxTime;
             let startT = graphsRoot.windowSeconds >= 99999 ? graphsRoot.datasetMinTime : Math.max(graphsRoot.datasetMinTime, endT - graphsRoot.windowSeconds);
-            graphsRoot.rangeStart = startT;
-            graphsRoot.rangeEnd = endT;
-            timespanSlider.setValues(startT, endT);
+            graphsRoot.applyTimeRange(startT, endT);
         } else {
             graphsRoot.customSpanActive = false;
         }
@@ -583,9 +570,7 @@ ColumnLayout {
                     flat: true
                     onClicked: {
                         graphsRoot.customSpanActive = true;
-                        graphsRoot.rangeStart = graphsRoot.datasetMinTime;
-                        graphsRoot.rangeEnd = graphsRoot.datasetMaxTime;
-                        timespanSlider.setValues(graphsRoot.datasetMinTime, graphsRoot.datasetMaxTime);
+                        graphsRoot.applyTimeRange(graphsRoot.datasetMinTime, graphsRoot.datasetMaxTime);
                     }
                 }
 
@@ -640,24 +625,7 @@ ColumnLayout {
 
         onSettingsApplied: function(idx, cfg) {
             if (idx === -1) {
-                graphsModel.append({
-                    "title": cfg.title,
-                    "channelKey": cfg.channelKey,
-                    "xAxisLabel": cfg.xAxisLabel,
-                    "yAxisLabel": cfg.yAxisLabel,
-                    "accentColor": cfg.accentColor,
-                    "autoScale": cfg.autoScale,
-                    "manualMinY": cfg.manualMinY,
-                    "manualMaxY": cfg.manualMaxY,
-                    "minYRange": 10,
-                    "filterOutliers3Std": cfg.filterOutliers3Std,
-                    "smoothingWindow": cfg.smoothingWindow,
-                    "maxBuckets": cfg.maxBuckets,
-                    "showGrid": cfg.showGrid,
-                    "showFill": cfg.showFill,
-                    "colSpan": cfg.colSpan,
-                    "cardHeight": graphsRoot.placeholderRowHeight
-                });
+                graphsModel.append(graphsRoot.normalizeCardConfig(cfg, graphsRoot.placeholderRowHeight, false));
                 graphsRoot.syncRowHeights(graphsModel.count - 1, graphsRoot.placeholderRowHeight);
                 graphsRoot.persistGraphsConfig();
                 return ;
@@ -665,21 +633,9 @@ ColumnLayout {
             if (idx < 0 || idx >= graphsModel.count)
                 return ;
 
-            graphsModel.setProperty(idx, "title", cfg.title);
-            graphsModel.setProperty(idx, "channelKey", cfg.channelKey);
-            graphsModel.setProperty(idx, "accentColor", cfg.accentColor);
-            graphsModel.setProperty(idx, "xAxisLabel", cfg.xAxisLabel);
-            graphsModel.setProperty(idx, "yAxisLabel", cfg.yAxisLabel);
-            graphsModel.setProperty(idx, "autoScale", cfg.autoScale);
-            graphsModel.setProperty(idx, "manualMinY", cfg.manualMinY);
-            graphsModel.setProperty(idx, "manualMaxY", cfg.manualMaxY);
-            graphsModel.setProperty(idx, "filterOutliers3Std", cfg.filterOutliers3Std);
-            graphsModel.setProperty(idx, "smoothingWindow", cfg.smoothingWindow);
-            graphsModel.setProperty(idx, "maxBuckets", cfg.maxBuckets);
-            graphsModel.setProperty(idx, "showGrid", cfg.showGrid);
-            graphsModel.setProperty(idx, "showFill", cfg.showFill);
-            graphsModel.setProperty(idx, "colSpan", cfg.colSpan);
-            graphsRoot.syncRowHeights(idx, graphsModel.get(idx).cardHeight);
+            let existingHeight = graphsModel.get(idx).cardHeight;
+            graphsModel.set(idx, graphsRoot.normalizeCardConfig(cfg, existingHeight, false));
+            graphsRoot.syncRowHeights(idx, existingHeight);
             graphsRoot.persistGraphsConfig();
         }
     }

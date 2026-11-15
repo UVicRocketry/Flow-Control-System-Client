@@ -166,23 +166,10 @@ Item {
     }
 
     function navigateInline(pageName) {
-        if (!splitViewActive) {
-            leftPageName = pageName;
-            focusedPane = "left";
-        } else if (pageName === leftPageName && focusedPane === "right") {
-            let prevRight = rightPageName;
-            rightPageName = pageName;
-            leftPageName = prevRight;
-        } else if (pageName === rightPageName && focusedPane === "left") {
-            let prevLeft = leftPageName;
-            leftPageName = pageName;
-            rightPageName = prevLeft;
-        } else if (focusedPane === "right") {
-            rightPageName = pageName;
-        } else {
-            leftPageName = pageName;
-        }
-        syncPagePlacements();
+        if (splitViewActive && focusedPane === "right")
+            openPageInRightPanel(pageName);
+        else
+            openPageInLeftPanel(pageName);
     }
 
     function openPageInLeftPanel(pageName) {

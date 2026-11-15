@@ -1,3 +1,4 @@
+import "../.."
 import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
@@ -159,35 +160,11 @@ Kirigami.Card {
                     anchors.rightMargin: Kirigami.Units.smallSpacing
                     spacing: Kirigami.Units.smallSpacing
 
-                    Rectangle {
-                        id: stateDot
-
-                        Layout.preferredWidth: 8
-                        Layout.preferredHeight: 8
-                        radius: 4
+                    StatusDot {
                         color: card.stateColor
-
-                        SequentialAnimation on opacity {
-                            running: card.currentState === "ACTUATING"
-                            loops: Animation.Infinite
-                            onRunningChanged: {
-                                if (!running)
-                                    stateDot.opacity = 1;
-
-                            }
-
-                            NumberAnimation {
-                                to: 0.2
-                                duration: 350
-                            }
-
-                            NumberAnimation {
-                                to: 1
-                                duration: 350
-                            }
-
-                        }
-
+                        pulsing: card.currentState === "ACTUATING"
+                        minPulseOpacity: 0.2
+                        pulseDuration: 350
                     }
 
                     Controls.Label {
