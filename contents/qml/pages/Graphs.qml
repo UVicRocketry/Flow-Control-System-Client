@@ -545,10 +545,8 @@ ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Kirigami.Units.mediumSpacing
 
-                Kirigami.Icon {
-                    source: "measure"
-                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
-                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                BundledIcon {
+                    iconName: "measure"
                 }
 
                 Controls.Label {

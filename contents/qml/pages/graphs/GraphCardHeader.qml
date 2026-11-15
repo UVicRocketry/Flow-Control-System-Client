@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import ".."
 
 // graph card header showing title, channel badge, live readout, and layout edit/reorder controls
 RowLayout {
@@ -75,37 +76,33 @@ RowLayout {
         visible: root.editLayoutMode
         spacing: 2
 
-        Controls.ToolButton {
-            icon.name: "go-previous"
+        IconToolButton {
+            iconName: "go-previous"
             display: Controls.AbstractButton.IconOnly
             enabled: root.cardIndex > 0
-            Controls.ToolTip.visible: hovered
-            Controls.ToolTip.text: "Move card earlier"
+            toolTipText: "Move card earlier"
             onClicked: root.moveRequested(root.cardIndex, root.cardIndex - 1)
         }
 
-        Controls.ToolButton {
-            icon.name: "go-next"
+        IconToolButton {
+            iconName: "go-next"
             display: Controls.AbstractButton.IconOnly
             enabled: root.cardIndex < root.totalCards - 1
-            Controls.ToolTip.visible: hovered
-            Controls.ToolTip.text: "Move card later"
+            toolTipText: "Move card later"
             onClicked: root.moveRequested(root.cardIndex, root.cardIndex + 1)
         }
 
-        Controls.ToolButton {
-            icon.name: "edit-rename"
+        IconToolButton {
+            iconName: "edit-rename"
             display: Controls.AbstractButton.IconOnly
-            Controls.ToolTip.visible: hovered
-            Controls.ToolTip.text: "Configure graph (Title, Source, Color, 3σ Smoothing, Axes)"
+            toolTipText: "Configure graph (Title, Source, Color, 3σ Smoothing, Axes)"
             onClicked: root.editRequested(root.cardIndex)
         }
 
-        Controls.ToolButton {
-            icon.name: "edit-delete"
+        IconToolButton {
+            iconName: "edit-delete"
             display: Controls.AbstractButton.IconOnly
-            Controls.ToolTip.visible: hovered
-            Controls.ToolTip.text: "Remove graph card"
+            toolTipText: "Remove graph card"
             onClicked: root.removeRequested(root.cardIndex)
         }
 

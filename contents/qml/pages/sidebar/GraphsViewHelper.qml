@@ -126,7 +126,9 @@ ColumnLayout {
 
             Controls.Button {
                 Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
                 text: "3σ Smooth All"
+                Kirigami.MnemonicData.label: "3σ &Smooth All"
                 icon.name: "view-filter"
                 checkable: true
                 checked: root.smoothAllActive
@@ -138,6 +140,7 @@ ColumnLayout {
 
             Controls.Button {
                 Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
                 text: root.editLayoutActive ? "Done Editing" : "Edit Layout"
                 icon.name: "edit-rename"
                 checkable: true

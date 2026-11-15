@@ -3,6 +3,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import QtWebSockets
 import org.kde.kirigami as Kirigami
+import "pages"
 
 // WebSocket connection status indicator, handler and controller
 Item {
@@ -247,6 +248,7 @@ Item {
                 id: actionButton
 
                 Layout.preferredHeight: Kirigami.Units.gridUnit * 1.8
+                spacing: Kirigami.Units.smallSpacing
                 text: wsRoot.isConnected ? "Disconnect" : (wsRoot.isConnecting ? "Connecting" : "Connect")
                 icon.name: wsRoot.isConnected ? "network-disconnect" : "network-connect"
                 highlighted: !wsRoot.isConnected && !wsRoot.isConnecting
@@ -347,10 +349,9 @@ Item {
                 color: wsRoot.statusColor
             }
 
-            Kirigami.Icon {
-                source: "arrow-down"
-                implicitWidth: Kirigami.Units.iconSizes.small / 1.6
-                implicitHeight: Kirigami.Units.iconSizes.small / 1.6
+            BundledIcon {
+                iconName: "arrow-down"
+                iconSize: Math.round(Kirigami.Units.iconSizes.small / 1.6)
                 opacity: 0.6
             }
 

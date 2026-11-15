@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import ".."
 
 // searchable, sectioned list view of external, local, and remote telemetry logs with inline file actions
 ColumnLayout {
@@ -41,10 +42,9 @@ ColumnLayout {
             placeholderText: root.effectiveDataMode === "local" ? "Filter local data..." : "Filter remote data..."
         }
 
-        Controls.ToolButton {
-            icon.name: "view-refresh"
-            Controls.ToolTip.visible: hovered
-            Controls.ToolTip.text: "Refresh data directory"
+        IconToolButton {
+            iconName: "view-refresh"
+            toolTipText: "Refresh data directory"
             onClicked: root.refreshRequested()
         }
 
@@ -155,10 +155,9 @@ ColumnLayout {
                     contentItem: RowLayout {
                         spacing: Kirigami.Units.smallSpacing
 
-                        Kirigami.Icon {
-                            Layout.preferredWidth: Kirigami.Units.iconSizes.smallMedium
-                            Layout.preferredHeight: Kirigami.Units.iconSizes.smallMedium
-                            source: dataDelegate.itemSection === "remote" ? "network-server" : "text-csv"
+                        BundledIcon {
+                            iconName: dataDelegate.itemSection === "remote" ? "network-server" : "text-csv"
+                            iconSize: Kirigami.Units.iconSizes.smallMedium
                             opacity: dataDelegate.markedDeleted ? 0.38 : 1
                         }
 
@@ -188,12 +187,11 @@ ColumnLayout {
                             color: Kirigami.Theme.disabledTextColor
                         }
 
-                        Controls.ToolButton {
+                        IconToolButton {
                             visible: dataDelegate.markedDeleted
-                            icon.name: "edit-undo"
+                            iconName: "edit-undo"
                             display: Controls.AbstractButton.IconOnly
-                            Controls.ToolTip.visible: hovered
-                            Controls.ToolTip.text: "Undo delete"
+                            toolTipText: "Undo delete"
                             onClicked: root.undoDeleteRequested(dataDelegate.itemName)
                         }
 
@@ -204,28 +202,25 @@ ColumnLayout {
                             spacing: Kirigami.Units.smallSpacing
                             Layout.fillHeight: true
 
-                            Controls.ToolButton {
+                            IconToolButton {
                                 visible: dataDelegate.itemSection === "external"
-                                icon.name: "view-hidden"
+                                iconName: "view-hidden"
                                 display: Controls.AbstractButton.IconOnly
-                                Controls.ToolTip.visible: hovered
-                                Controls.ToolTip.text: "Hide external data"
+                                toolTipText: "Hide external data"
                                 onClicked: root.hideRequested(dataDelegate.itemName)
                             }
 
-                            Controls.ToolButton {
-                                icon.name: "edit-rename"
+                            IconToolButton {
+                                iconName: "edit-rename"
                                 display: Controls.AbstractButton.IconOnly
-                                Controls.ToolTip.visible: hovered
-                                Controls.ToolTip.text: "Rename data"
+                                toolTipText: "Rename data"
                                 onClicked: root.renameRequested(dataDelegate.itemName)
                             }
 
-                            Controls.ToolButton {
-                                icon.name: "edit-delete"
+                            IconToolButton {
+                                iconName: "edit-delete"
                                 display: Controls.AbstractButton.IconOnly
-                                Controls.ToolTip.visible: hovered
-                                Controls.ToolTip.text: "Mark data for deletion"
+                                toolTipText: "Mark data for deletion"
                                 onClicked: root.deleteRequested(dataDelegate.itemName)
                             }
 

@@ -35,6 +35,7 @@ ColumnLayout {
                 id: abortButton
 
                 Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
                 text: "Emergency Abort"
                 icon.name: "process-stop"
                 onClicked: root.abortRequested()

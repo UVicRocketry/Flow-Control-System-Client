@@ -108,6 +108,7 @@ Kirigami.Dialog {
 
         Controls.Button {
             Layout.fillWidth: true
+            spacing: Kirigami.Units.smallSpacing
             text: "Open Configuration Folder"
             icon.name: "folder-open"
             onClicked: {

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import ".."
 
 // primary view navigation list at the top of the sidebar
 ListView {
@@ -80,13 +81,43 @@ ListView {
         property int lastModifiers: Qt.NoModifier
 
         width: ListView.view.width
-        text: name
-        icon.name: iconName
-        icon.color: "transparent"
-        icon.width: Kirigami.Units.iconSizes.smallMedium
-        icon.height: Kirigami.Units.iconSizes.smallMedium
+        spacing: Kirigami.Units.mediumSpacing
         font.bold: highlighted
         highlighted: root.isPageActive(page)
+        Kirigami.MnemonicData.enabled: false
+        Kirigami.MnemonicData.label: ""
+
+        contentItem: RowLayout {
+            spacing: Kirigami.Units.mediumSpacing
+
+            BundledIcon {
+                Layout.alignment: Qt.AlignVCenter
+                iconName: navBtn.iconName
+                iconSize: Kirigami.Units.iconSizes.smallMedium
+            }
+
+            Controls.Label {
+                id: navLabel
+
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                Kirigami.MnemonicData.enabled: navBtn.enabled && navBtn.visible
+                Kirigami.MnemonicData.controlType: Kirigami.MnemonicData.SecondaryControl
+                Kirigami.MnemonicData.label: navBtn.name
+                text: navLabel.Kirigami.MnemonicData.richTextLabel
+                textFormat: Text.StyledText
+                font.bold: navBtn.highlighted
+                color: Kirigami.Theme.textColor
+                elide: Text.ElideRight
+
+                Shortcut {
+                    enabled: navLabel.Kirigami.MnemonicData.enabled
+                    sequence: navLabel.Kirigami.MnemonicData.sequence
+                    onActivated: root.navigateRequested(navBtn.page)
+                }
+            }
+        }
+
         onClicked: {
             var mods = navBtn.lastModifiers;
             navBtn.lastModifiers = Qt.NoModifier;

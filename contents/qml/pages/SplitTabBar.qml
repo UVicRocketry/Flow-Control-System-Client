@@ -43,12 +43,11 @@ Controls.ToolBar {
     contentItem: RowLayout {
         spacing: Kirigami.Units.smallSpacing / 2
 
-        Controls.ToolButton {
-            icon.name: root.paneSide === "left" ? "go-next" : "go-previous"
+        IconToolButton {
+            iconName: root.paneSide === "left" ? "go-next" : "go-previous"
             text: root.paneSide === "left" ? "Move right" : "Move left"
             display: Controls.AbstractButton.IconOnly
-            Controls.ToolTip.visible: hovered
-            Controls.ToolTip.text: root.paneSide === "left" ? "Move to right panel" : "Move to left panel"
+            toolTipText: root.paneSide === "left" ? "Move to right panel" : "Move to left panel"
             onClicked: root.swapRequested()
         }
 
@@ -90,12 +89,11 @@ Controls.ToolBar {
             Layout.bottomMargin: Kirigami.Units.smallSpacing
         }
 
-        Controls.ToolButton {
-            icon.name: "window-close"
+        IconToolButton {
+            iconName: "window-close"
             text: "Close"
             display: Controls.AbstractButton.IconOnly
-            Controls.ToolTip.visible: hovered
-            Controls.ToolTip.text: root.paneSide === "left" ? "Close left panel" : "Close right panel"
+            toolTipText: root.paneSide === "left" ? "Close left panel" : "Close right panel"
             onClicked: root.closeRequested()
         }
 

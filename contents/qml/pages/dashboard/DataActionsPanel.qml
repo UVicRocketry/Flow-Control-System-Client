@@ -37,6 +37,7 @@ ColumnLayout {
 
     Controls.Button {
         Layout.fillWidth: true
+        spacing: Kirigami.Units.smallSpacing
         text: "Show in file browser"
         icon.name: "folder-open"
         enabled: root.hasValidSelection && root.effectiveDataMode === "local"
@@ -45,6 +46,7 @@ ColumnLayout {
 
     Controls.Button {
         Layout.fillWidth: true
+        spacing: Kirigami.Units.smallSpacing
         text: "Load Data from file..."
         icon.name: "document-open"
         enabled: root.effectiveDataMode === "local"
@@ -53,6 +55,7 @@ ColumnLayout {
 
     Controls.Button {
         Layout.fillWidth: true
+        spacing: Kirigami.Units.smallSpacing
         text: "Download data..."
         icon.name: "edit-download"
         enabled: root.hasValidSelection && root.effectiveDataMode === "remote"
@@ -61,6 +64,7 @@ ColumnLayout {
 
     Controls.Button {
         Layout.fillWidth: true
+        spacing: Kirigami.Units.smallSpacing
         text: "Delete data..."
         icon.name: "edit-delete"
         enabled: root.hasValidSelection
@@ -69,6 +73,7 @@ ColumnLayout {
 
     Controls.Button {
         Layout.fillWidth: true
+        spacing: Kirigami.Units.smallSpacing
         visible: root.selectedDataName !== "" && root.isSelectedMarkedDeleted
         text: "Undo Delete"
         icon.name: "edit-undo"

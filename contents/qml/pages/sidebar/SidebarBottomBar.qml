@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import ".."
 
 // bottom bar with settings button (left) and notification tray button + unread badge (right)
 RowLayout {
@@ -18,13 +19,13 @@ RowLayout {
     Layout.bottomMargin: Kirigami.Units.gridUnit / 4
     spacing: Kirigami.Units.smallSpacing
 
-    Controls.ToolButton {
+    IconToolButton {
         id: settingsBtn
 
-        icon.name: "configure"
+        iconName: "configure"
+        iconSize: Kirigami.Units.iconSizes.smallMedium
         display: Controls.AbstractButton.IconOnly
-        Controls.ToolTip.visible: hovered
-        Controls.ToolTip.text: "Settings"
+        toolTipText: "Settings"
         onClicked: root.settingsRequested()
     }
 
@@ -32,13 +33,13 @@ RowLayout {
         Layout.fillWidth: true
     }
 
-    Controls.ToolButton {
+    IconToolButton {
         id: notifTrayBtn
 
-        icon.name: "notifications"
+        iconName: "notifications"
+        iconSize: Kirigami.Units.iconSizes.smallMedium
         display: Controls.AbstractButton.IconOnly
-        Controls.ToolTip.visible: hovered
-        Controls.ToolTip.text: "Notifications" + (root.unreadNotificationCount > 0 ? " (" + root.unreadNotificationCount + ")" : "")
+        toolTipText: "Notifications" + (root.unreadNotificationCount > 0 ? " (" + root.unreadNotificationCount + ")" : "")
         onClicked: root.notificationsRequested()
 
         Rectangle {

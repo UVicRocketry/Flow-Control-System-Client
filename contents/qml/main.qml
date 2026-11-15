@@ -59,20 +59,24 @@ Kirigami.ApplicationWindow {
             Kirigami.Action {
                 text: "Record data"
 
-                displayComponent: Controls.ToolButton {
+                displayComponent: IconToolButton {
                     id: recordBtn
 
                     property bool isRecording: backend ? backend.recording : false
                     property bool serverOnline: sharedWebSocket.status === WebSocket.Open
 
+                    iconName: "keyframe-record"
+                    labelText: isRecording ? "Recording..." : "Record data"
+                    boldText: isRecording
+                    textColor: isRecording ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+                    iconColor: textColor
+                    invertOnChecked: false
+                    contentOpacity: serverOnline || isRecording ? 1.0 : 0.5
                     checkable: true
                     checked: isRecording
                     highlighted: isRecording
-                    padding: Kirigami.Units.smallSpacing
-                    leftPadding: Kirigami.Units.mediumSpacing
-                    rightPadding: Kirigami.Units.mediumSpacing
-                    Controls.ToolTip.visible: hovered && !serverOnline
-                    Controls.ToolTip.text: "Server offline — connect to record telemetry"
+                    toolTipVisible: hovered && !serverOnline
+                    toolTipText: "Server offline — connect to record telemetry"
                     onClicked: {
                         if (backend)
                             recordBtn.isRecording = backend.toggle_recording();
@@ -85,25 +89,6 @@ Kirigami.ApplicationWindow {
                         }
 
                         target: backend
-                    }
-
-                    contentItem: RowLayout {
-                        spacing: Kirigami.Units.smallSpacing
-                        opacity: recordBtn.serverOnline || recordBtn.isRecording ? 1 : 0.5
-
-                        Kirigami.Icon {
-                            source: "keyframe-record"
-                            implicitWidth: Kirigami.Units.iconSizes.small
-                            implicitHeight: Kirigami.Units.iconSizes.small
-                            color: recordBtn.isRecording ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
-                        }
-
-                        Controls.Label {
-                            text: recordBtn.isRecording ? "Recording..." : "Record data"
-                            font.bold: recordBtn.isRecording
-                            color: recordBtn.isRecording ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
-                        }
-
                     }
 
                 }
@@ -309,24 +294,20 @@ Kirigami.ApplicationWindow {
         titleDelegate: RowLayout {
             spacing: Kirigami.Units.smallSpacing
 
-            Controls.ToolButton {
-                icon.name: "window-new"
-                text: "Popout Window"
-                display: Controls.AbstractButton.TextBesideIcon
+            IconToolButton {
+                iconName: "window-new"
+                labelText: "Popout Window"
                 enabled: pageHelper.activeInlinePage !== "" && !pageHelper.poppedOutPages[pageHelper.activeInlinePage]
-                Controls.ToolTip.visible: hovered
-                Controls.ToolTip.text: pageHelper.poppedOutPages[pageHelper.activeInlinePage] ? "Active view is already popped out" : "Pop out active view into a separate window (Alt+Click in sidebar)"
+                toolTipText: pageHelper.poppedOutPages[pageHelper.activeInlinePage] ? "Active view is already popped out" : "Pop out active view into a separate window (Alt+Click in sidebar)"
                 onClicked: pageHelper.openPageInNewWindow(pageHelper.activeInlinePage)
             }
 
-            Controls.ToolButton {
-                icon.name: "view-split-left-right"
-                text: "Split View"
-                display: Controls.AbstractButton.TextBesideIcon
+            IconToolButton {
+                iconName: "view-split-left-right"
+                labelText: "Split View"
                 checkable: true
                 checked: pageHelper.splitViewActive
-                Controls.ToolTip.visible: hovered
-                Controls.ToolTip.text: pageHelper.splitViewActive ? "Close split view" : "Open side-by-side split view"
+                toolTipText: pageHelper.splitViewActive ? "Close split view" : "Open side-by-side split view"
                 onClicked: pageHelper.toggleSplitView()
             }
 
