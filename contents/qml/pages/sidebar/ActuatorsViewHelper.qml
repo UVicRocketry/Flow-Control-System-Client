@@ -44,7 +44,6 @@ ColumnLayout {
                 id: keybindsCheckBox
 
                 Layout.fillWidth: true
-                // Layout.leftMargin: Kirigami.Units.gridUnit / 2
                 text: "Enable Keybinds (1–5)"
                 checked: root.keybindsEnabled
                 onToggled: root.keybindsToggled(checked)

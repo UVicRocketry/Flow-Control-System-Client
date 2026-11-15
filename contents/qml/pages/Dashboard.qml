@@ -150,7 +150,6 @@ ColumnLayout {
                             backend.show_in_file_browser(fn.selectedDataName);
 
                     }
-                    // onLoadDataRequested: fn.loadSelectedData()
                     onOpenDataRequested: fn.openSelectedData()
                     onDownloadDataRequested: fn.downloadSelectedData()
                     onDeleteDataRequested: {

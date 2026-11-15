@@ -218,20 +218,12 @@ QtObject {
         var mode = dataModeFor(selectedDataName);
         if (typeof backend !== "undefined" && backend !== null && backend.load_data !== undefined)
             backend.load_data(mode, selectedDataName);
-        else
-            onLoad_data(mode, selectedDataName, null);
+
     }
 
     function openSelectedData() {
-        // TODO when moved to topbar, use existing entered directory to replace quotes
         if (typeof backend !== "undefined" && backend !== null && backend.open_data !== undefined)
             backend.open_data("");
-
-    }
-
-    function showInFileBrowser() {
-        if (typeof backend !== "undefined" && backend !== null && backend.show_in_file_browser !== undefined)
-            backend.show_in_file_browser(selectedDataName);
 
     }
 

@@ -44,10 +44,6 @@ Column {
         });
     }
 
-    function appendLog(level, messageText) {
-        showToast(level, messageText);
-    }
-
     function removeToast(id) {
         for (let i = 0; i < toastModel.count; i++) {
             if (toastModel.get(i).toastId === id) {
