@@ -108,7 +108,7 @@ ColumnLayout {
             contentWidth: width
             contentHeight: actuatorsGrid.implicitHeight
             boundsBehavior: Flickable.StopAtBounds
-            Controls.ScrollBar.vertical: actuatorsScrollBar
+            Controls.ScrollBar.vertical: actuatorsScrollBar.scrollBar
 
             GridLayout {
                 id: actuatorsGrid
@@ -151,32 +151,12 @@ ColumnLayout {
 
         }
 
-        Item {
-            id: actuatorsScrollBarColumn
+        PaneScrollBar {
+            id: actuatorsScrollBar
 
-            visible: actuators.visible && actuatorsFlick.contentHeight > actuatorsFlick.height
-            Layout.fillHeight: true
-            Layout.preferredWidth: Math.max(actuatorsScrollBar.implicitWidth, Kirigami.Units.gridUnit)
-            Layout.rightMargin: graphsRoot.inLeftSplitPane ? 0 : -Kirigami.Units.smallSpacing
-
-            Controls.ScrollBar {
-                id: actuatorsScrollBar
-
-                anchors.fill: parent
-                anchors.margins: 2
-                anchors.rightMargin: graphsRoot.inLeftSplitPane ? Kirigami.Units.mediumSpacing : 2
-                orientation: Qt.Vertical
-                policy: actuators.visible ? Controls.ScrollBar.AsNeeded : Controls.ScrollBar.AlwaysOff
-                enabled: actuators.visible
-            }
-
-            Kirigami.Separator {
-                visible: actuators.inLeftSplitPane
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-            }
-
+            flickable: actuatorsFlick
+            pageVisible: actuators.visible
+            showSeparator: actuators.inLeftSplitPane
         }
 
     }

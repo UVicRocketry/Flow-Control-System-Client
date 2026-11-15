@@ -1,3 +1,4 @@
+import ".."
 import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
@@ -20,34 +21,15 @@ Item {
     visible: root.editLayoutMode
 
     // right edge handlebar (adjusts colSpan 1 -> 3)
-    Rectangle {
+    DragHandlebar {
         id: rightHandlebar
 
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        width: 10
-        height: Math.min(parent.height * 0.6, 72)
-        radius: 5
-        color: rightDragArea.containsMouse || rightDragArea.pressed ? root.resolvedColor : Kirigami.Theme.disabledTextColor
-        opacity: rightDragArea.containsMouse || rightDragArea.pressed ? 0.95 : 0.55
-
-        ColumnLayout {
-            anchors.centerIn: parent
-            spacing: 3
-
-            Repeater {
-                model: 3
-
-                Rectangle {
-                    width: 4
-                    height: 4
-                    radius: 2
-                    color: Kirigami.Theme.backgroundColor
-                }
-
-            }
-
-        }
+        orientation: Qt.Vertical
+        active: rightDragArea.containsMouse || rightDragArea.pressed
+        activeColor: root.resolvedColor
+        opacity: active ? 0.95 : 0.55
 
         MouseArea {
             id: rightDragArea
@@ -83,34 +65,15 @@ Item {
     }
 
     // bottom edge handlebar (adjusts row height across all cards in the same row)
-    Rectangle {
+    DragHandlebar {
         id: bottomHandlebar
 
         anchors.bottom: parent.bottom
         anchors.horizontalCenter: parent.horizontalCenter
-        width: Math.min(parent.width * 0.4, 96)
-        height: 8
-        radius: 4
-        color: bottomDragArea.containsMouse || bottomDragArea.pressed ? root.resolvedColor : Kirigami.Theme.disabledTextColor
-        opacity: bottomDragArea.containsMouse || bottomDragArea.pressed ? 0.95 : 0.55
-
-        RowLayout {
-            anchors.centerIn: parent
-            spacing: 4
-
-            Repeater {
-                model: 3
-
-                Rectangle {
-                    width: 4
-                    height: 4
-                    radius: 2
-                    color: Kirigami.Theme.backgroundColor
-                }
-
-            }
-
-        }
+        orientation: Qt.Horizontal
+        active: bottomDragArea.containsMouse || bottomDragArea.pressed
+        activeColor: root.resolvedColor
+        opacity: active ? 0.95 : 0.55
 
         MouseArea {
             id: bottomDragArea

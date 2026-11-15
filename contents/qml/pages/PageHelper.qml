@@ -415,105 +415,23 @@ Item {
     }
 
     // Hover-revealed resize handlebar positioned in the vertical seam between the two split panes/tabs
-    Item {
+    SplitResizeHandle {
         id: splitResizeHandle
-
-        readonly property bool activeOrHovered: splitResizeArea.containsMouse || splitResizeArea.pressed
-        readonly property real seamCenterX: splitGrid.x + leftPaneFrame.x + leftPaneFrame.width + (splitGrid.columnSpacing / 2)
 
         visible: pageHelperRoot.splitViewActive
         z: 1000
-        x: seamCenterX - (width / 2)
         y: splitGrid.y
         width: Math.max(splitGrid.columnSpacing, 10)
         height: splitGrid.height
-
-        Rectangle {
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: 2
-            height: parent.height
-            radius: 1
-            color: splitResizeArea.pressed ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
-            opacity: splitResizeArea.pressed ? 0.65 : (splitResizeArea.containsMouse ? 0.35 : 0)
-
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: 120
-                }
-
-            }
-
+        seamCenterX: splitGrid.x + leftPaneFrame.x + leftPaneFrame.width + (splitGrid.columnSpacing / 2)
+        availableWidth: pageHelperRoot.availableSplitWidth
+        leftMinWidth: pageHelperRoot.pageMinWidthFor(pageHelperRoot.leftPageName)
+        rightMinWidth: pageHelperRoot.pageMinWidthFor(pageHelperRoot.rightPageName)
+        leftTargetWidth: pageHelperRoot.leftPaneTargetWidth
+        splitRatio: pageHelperRoot.splitRatio
+        onRatioChanged: function(newRatio) {
+            pageHelperRoot.splitRatio = newRatio;
         }
-
-        Rectangle {
-            id: splitHandlebarPill
-
-            anchors.centerIn: parent
-            width: 10
-            height: Math.min(parent.height * 0.6, 72)
-            radius: 5
-            color: splitResizeArea.pressed ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
-            opacity: splitResizeHandle.activeOrHovered ? 0.95 : 0
-
-            ColumnLayout {
-                anchors.centerIn: parent
-                spacing: 3
-
-                Repeater {
-                    model: 3
-
-                    Rectangle {
-                        width: 4
-                        height: 4
-                        radius: 2
-                        color: Kirigami.Theme.backgroundColor
-                    }
-
-                }
-
-            }
-
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: 120
-                }
-
-            }
-
-        }
-
-        MouseArea {
-            id: splitResizeArea
-
-            property real startGlobalX: 0
-            property real startLeftWidth: 0
-
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.SizeHorCursor
-            preventStealing: true
-            onPressed: function(mouse) {
-                startGlobalX = mapToGlobal(mouse.x, mouse.y).x;
-                startLeftWidth = pageHelperRoot.leftPaneTargetWidth;
-            }
-            onPositionChanged: function(mouse) {
-                if (!pressed)
-                    return ;
-
-                let curGlobalX = mapToGlobal(mouse.x, mouse.y).x;
-                let deltaX = curGlobalX - startGlobalX;
-                let availW = pageHelperRoot.availableSplitWidth;
-                let leftMin = pageHelperRoot.pageMinWidthFor(pageHelperRoot.leftPageName);
-                let rightMin = pageHelperRoot.pageMinWidthFor(pageHelperRoot.rightPageName);
-                let maxLeft = Math.max(leftMin, availW - rightMin);
-                let nextLeft = Math.max(leftMin, Math.min(maxLeft, startLeftWidth + deltaX));
-                pageHelperRoot.splitRatio = nextLeft / availW;
-            }
-            onDoubleClicked: {
-                pageHelperRoot.splitRatio = 0.5;
-            }
-        }
-
     }
 
     ColumnLayout {

@@ -390,7 +390,7 @@ ColumnLayout {
             contentWidth: width
             contentHeight: graphsGrid.implicitHeight
             boundsBehavior: Flickable.StopAtBounds
-            Controls.ScrollBar.vertical: graphsScrollBar
+            Controls.ScrollBar.vertical: graphsScrollBar.scrollBar
 
             GridLayout {
                 id: graphsGrid
@@ -534,32 +534,12 @@ ColumnLayout {
 
         }
 
-        Item {
-            id: graphsScrollBarColumn
+        PaneScrollBar {
+            id: graphsScrollBar
 
-            visible: graphsRoot.visible && graphsFlick.contentHeight > graphsFlick.height
-            Layout.fillHeight: true
-            Layout.preferredWidth: Math.max(graphsScrollBar.implicitWidth, Kirigami.Units.gridUnit)
-            Layout.rightMargin: graphsRoot.inLeftSplitPane ? 0 : -Kirigami.Units.smallSpacing
-
-            Controls.ScrollBar {
-                id: graphsScrollBar
-
-                anchors.fill: parent
-                anchors.margins: 2
-                anchors.rightMargin: graphsRoot.inLeftSplitPane ? Kirigami.Units.mediumSpacing : 2
-                orientation: Qt.Vertical
-                policy: graphsRoot.visible ? Controls.ScrollBar.AsNeeded : Controls.ScrollBar.AlwaysOff
-                enabled: graphsRoot.visible
-            }
-
-            Kirigami.Separator {
-                visible: graphsRoot.inLeftSplitPane
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-            }
-
+            flickable: graphsFlick
+            pageVisible: graphsRoot.visible
+            showSeparator: graphsRoot.inLeftSplitPane
         }
 
     }
