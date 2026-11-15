@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 
 from splash import SplashScreen
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWidgets import QApplication, QMessageBox
 from __feature__ import snake_case, true_property
@@ -56,30 +57,76 @@ def close_pyinstaller_splash() -> None:
         pass
 
 
+def _select_bundled_theme_name(bundled_icons: Path, scheme: Qt.ColorScheme | None = None) -> str:
+    """Returns the appropriate bundled icon theme name ('breeze-fallback-light' or 'breeze-fallback')."""
+    if scheme is None:
+        scheme = QGuiApplication.style_hints().color_scheme
+    is_light = scheme == Qt.ColorScheme.Light or (
+        scheme == Qt.ColorScheme.Unknown
+        and QGuiApplication.palette().window().color().lightness() > 128
+    )
+    if is_light and (bundled_icons / "breeze-fallback-light").exists():
+        return "breeze-fallback-light"
+    return "breeze-fallback"
+
+
 def configure_icon_themes(contents_dir: Path) -> None:
     """Sets up host and bundled fallback icon search paths."""
-    if sys.platform.startswith("linux"):
-        host_icon_dirs = [
-            str(Path.home() / ".local/share/icons"),
-            "/usr/share/icons",
-            "/usr/local/share/icons",
-        ]
-        QIcon.set_theme_search_paths(
-            host_icon_dirs + QIcon.theme_search_paths()
-        )
-
-    # Append bundled icons at the END of the search paths as a fallback
     bundled_icons = contents_dir / "icons"
     if not bundled_icons.exists() and IS_FROZEN:
         bundled_icons = Path(sys._MEIPASS) / "icons"
 
-    if bundled_icons.exists():
-        QIcon.set_theme_search_paths(
-            QIcon.theme_search_paths() + [str(bundled_icons)]
-        )
-        QIcon.set_fallback_theme_name("breeze-fallback")
+    if sys.platform == "win32":
+        # On Windows, exclusively use bundled icons (never Windows native icons)
+        if bundled_icons.exists():
+            QIcon.set_theme_search_paths([str(bundled_icons)])
+            theme_name = _select_bundled_theme_name(bundled_icons)
+            QIcon.set_theme_name(theme_name)
+            QIcon.set_fallback_theme_name(theme_name)
+
+            def _on_color_scheme_changed(scheme: Qt.ColorScheme) -> None:
+                new_theme = _select_bundled_theme_name(bundled_icons, scheme)
+                QIcon.set_theme_name(new_theme)
+                QIcon.set_fallback_theme_name(new_theme)
+
+            QGuiApplication.style_hints().colorSchemeChanged.connect(
+                _on_color_scheme_changed
+            )
+        else:
+            QIcon.set_theme_name("breeze")
+            QIcon.set_fallback_theme_name("breeze")
     else:
-        QIcon.set_fallback_theme_name("breeze")
+        if sys.platform.startswith("linux"):
+            host_icon_dirs = [
+                str(Path.home() / ".local/share/icons"),
+                "/usr/share/icons",
+                "/usr/local/share/icons",
+            ]
+            QIcon.set_theme_search_paths(
+                host_icon_dirs + QIcon.theme_search_paths()
+            )
+
+        if bundled_icons.exists():
+            QIcon.set_theme_search_paths(
+                QIcon.theme_search_paths() + [str(bundled_icons)]
+            )
+            theme_name = _select_bundled_theme_name(bundled_icons)
+            if not QIcon.theme_name():
+                QIcon.set_theme_name(theme_name)
+            QIcon.set_fallback_theme_name(theme_name)
+
+            def _on_color_scheme_changed(scheme: Qt.ColorScheme) -> None:
+                new_theme = _select_bundled_theme_name(bundled_icons, scheme)
+                if QIcon.theme_name() in ("", "breeze-fallback", "breeze-fallback-light"):
+                    QIcon.set_theme_name(new_theme)
+                QIcon.set_fallback_theme_name(new_theme)
+
+            QGuiApplication.style_hints().colorSchemeChanged.connect(
+                _on_color_scheme_changed
+            )
+        else:
+            QIcon.set_fallback_theme_name("breeze")
+
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
 
