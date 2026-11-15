@@ -51,7 +51,18 @@ DEFAULT_ICONS = [
     "keyframe-record",
     "view-hidden",
     "process-stop",
-    "camera-video"
+    "camera-video",
+    # Split view & popout windows
+    "window-new",
+    "view-split-left-right",
+    "window-duplicate",
+    "view-restore",
+    "go-previous",
+    "go-next",
+    # Toolbar & graph helpers
+    "view-filter",
+    "download",
+    "chronometer",
 ]
 
 SEARCH_THEMES = [

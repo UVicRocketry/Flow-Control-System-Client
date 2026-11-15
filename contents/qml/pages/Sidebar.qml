@@ -31,6 +31,9 @@ ColumnLayout {
     }
 
     signal navigateRequested(string pageName)
+    signal openInLeftRequested(string pageName)
+    signal openInRightRequested(string pageName)
+    signal openInNewWindowRequested(string pageName)
     signal settingsRequested()
     signal notificationsRequested()
     signal timeScaleChanged(real seconds)
@@ -38,14 +41,9 @@ ColumnLayout {
 
     // returns true whenever the specified page is currently visible on screen
     function isPageVisible(pageName) {
-        if (root.visiblePages && root.visiblePages.length > 0) {
-            for (let i = 0; i < root.visiblePages.length; ++i) {
-                if (root.visiblePages[i] === pageName)
-                    return true;
+        if (root.visiblePages && root.visiblePages.length > 0)
+            return root.visiblePages.indexOf(pageName) !== -1;
 
-            }
-            return false;
-        }
         return root.activePageName === pageName;
     }
 
@@ -58,51 +56,68 @@ ColumnLayout {
         activePageName: root.activePageName
         visiblePages: root.visiblePages
         onNavigateRequested: function(pageName) {
-            root.activePageName = pageName;
             root.navigateRequested(pageName);
         }
-    }
-
-    // view-specific helpers (each is shown when its corresponding view is visible, supporting multiple views open at once)
-    DashboardViewHelper {
-        visible: root.isPageVisible("dashboard")
-    }
-
-    ActuatorsViewHelper {
-        visible: root.isPageVisible("actuators")
-        keybindsEnabled: root.keybindsEnabled
-        onAbortRequested: root.abortRequested()
-        onKeybindsToggled: function(enabled) {
-            root.keybindsEnabled = enabled;
+        onOpenInLeftRequested: function(pageName) {
+            root.openInLeftRequested(pageName);
+        }
+        onOpenInRightRequested: function(pageName) {
+            root.openInRightRequested(pageName);
+        }
+        onOpenInNewWindowRequested: function(pageName) {
+            root.openInNewWindowRequested(pageName);
         }
     }
 
-    GraphsViewHelper {
-        visible: root.isPageVisible("graphs")
-        timeScalePreset: root.timeScalePreset
-        customWindowSeconds: root.customWindowSeconds
-        effectiveWindowSeconds: root.effectiveWindowSeconds
-        smoothAllActive: root.smoothAllActive
-        editLayoutActive: root.editLayoutActive
-        onPresetSelected: function(preset) {
-            root.timeScalePreset = preset;
-            root.timeScaleChanged(root.effectiveWindowSeconds);
-        }
-        onCustomSecondsModified: function(seconds) {
-            root.customWindowSeconds = seconds;
-            root.timeScaleChanged(root.effectiveWindowSeconds);
-        }
-        onSmoothAllToggled: function(active) {
-            root.smoothAllActive = active;
-        }
-        onEditLayoutToggled: function(active) {
-            root.editLayoutActive = active;
-        }
-    }
-
-    // bottom spacer
-    Item {
+    // Scrollable region for view-specific helpers so split-view & popout helpers never clip or overflow
+    Controls.ScrollView {
+        Layout.fillWidth: true
         Layout.fillHeight: true
+        clip: true
+        contentWidth: availableWidth
+
+        ColumnLayout {
+            width: parent.width
+            spacing: Kirigami.Units.smallSpacing
+
+            DashboardViewHelper {
+                visible: root.isPageVisible("dashboard")
+            }
+
+            ActuatorsViewHelper {
+                visible: root.isPageVisible("actuators")
+                keybindsEnabled: root.keybindsEnabled
+                onAbortRequested: root.abortRequested()
+                onKeybindsToggled: function(enabled) {
+                    root.keybindsEnabled = enabled;
+                }
+            }
+
+            GraphsViewHelper {
+                visible: root.isPageVisible("graphs")
+                timeScalePreset: root.timeScalePreset
+                customWindowSeconds: root.customWindowSeconds
+                effectiveWindowSeconds: root.effectiveWindowSeconds
+                smoothAllActive: root.smoothAllActive
+                editLayoutActive: root.editLayoutActive
+                onPresetSelected: function(preset) {
+                    root.timeScalePreset = preset;
+                    root.timeScaleChanged(root.effectiveWindowSeconds);
+                }
+                onCustomSecondsModified: function(seconds) {
+                    root.customWindowSeconds = seconds;
+                    root.timeScaleChanged(root.effectiveWindowSeconds);
+                }
+                onSmoothAllToggled: function(active) {
+                    root.smoothAllActive = active;
+                }
+                onEditLayoutToggled: function(active) {
+                    root.editLayoutActive = active;
+                }
+            }
+
+        }
+
     }
 
     // bottom bar: settings (bottom-left) and notification tray (bottom-right)

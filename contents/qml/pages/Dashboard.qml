@@ -1,7 +1,6 @@
 import ".."
 import "./dashboard"
 import QtQuick
-import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
@@ -12,8 +11,9 @@ ColumnLayout {
     property bool disconnectBannerDismissed: false
     property string dataSourceMode: fn.dataSourceMode
 
-    spacing: Kirigami.Units.largeSpacing
+    spacing: Kirigami.Units.gridUnit / 2
     Component.onDestruction: fn.commitPendingDeletions()
+    Layout.fillWidth: true
     Layout.fillHeight: true
 
     // helper functions
@@ -70,7 +70,6 @@ ColumnLayout {
         Layout.preferredHeight: Kirigami.Units.gridUnit * 24
         Layout.minimumHeight: Kirigami.Units.gridUnit * 24
         Layout.fillHeight: true
-        Layout.bottomMargin: -1 * Kirigami.Units.gridUnit / 2
 
         header: DashboardHeader {
             dataSourceMode: fn.dataSourceMode
@@ -198,10 +197,11 @@ ColumnLayout {
 
     }
 
-    // 3. Data-related dialogs
+    // 3. Data-related dialogs (hidden Item so ColumnLayout reserves zero space/spacing below the bottom card)
     DataDialogs {
         id: dataDialogs
 
+        visible: false
         targetActionData: fn.targetActionData
         onRenameConfirmed: function(newName) {
             fn.applyRename(fn.targetActionData, newName);

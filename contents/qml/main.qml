@@ -10,9 +10,6 @@ import "pages"
 Kirigami.ApplicationWindow {
     id: root
 
-    readonly property var actuatorsPage: actuatorsPageLoader.item ?? actuatorsPageLoader
-    readonly property var graphsPage: graphsPageLoader.item ?? graphsPageLoader
-    readonly property var videoPage: videoPageLoader.item ?? videoPageLoader
     // Central WebSocket connection shared by all views and components
     property alias webSocket: sharedWebSocket
     property bool userDisconnected: false
@@ -28,10 +25,11 @@ Kirigami.ApplicationWindow {
     }
 
     minimumHeight: Kirigami.Units.gridUnit * 34
-    minimumWidth: Kirigami.Units.gridUnit * 45
+    minimumWidth: Math.max(Kirigami.Units.gridUnit * 45, (root.globalDrawer ? root.globalDrawer.width : 0) + pageHelper.minimumRequiredWidth)
     title: "Flow Control System"
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.ToolBar
     pageStack.globalToolBar.showNavigationButtons: Kirigami.ApplicationHeaderStyle.NoNavigationButtons
+    onClosing: pageHelper.closeAllPopouts()
 
     Core.Settings {
         id: appSettings
@@ -60,6 +58,7 @@ Kirigami.ApplicationWindow {
     // only use one main page to keep toolbar consistent
     pageStack.initialPage: Kirigami.Page {
         title: "Controls"
+        padding: 0
         actions: [
             Kirigami.Action {
                 text: "Record data"
@@ -94,7 +93,7 @@ Kirigami.ApplicationWindow {
 
                     contentItem: RowLayout {
                         spacing: Kirigami.Units.smallSpacing
-                        opacity: recordBtn.serverOnline || recordBtn.isRecording ? 1.0 : 0.5
+                        opacity: recordBtn.serverOnline || recordBtn.isRecording ? 1 : 0.5
 
                         Kirigami.Icon {
                             source: "keyframe-record"
@@ -170,83 +169,15 @@ Kirigami.ApplicationWindow {
         Item {
             anchors.fill: parent
 
-            StackLayout {
-                id: contentStack
+            PageHelper {
+                id: pageHelper
 
                 anchors.fill: parent
-                currentIndex: 0
-
-                // 0
-                Dashboard {
-                    id: dashboardPage
-                }
-
-                // 1
-                Loader {
-                    id: actuatorsPageLoader
-
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    asynchronous: true
-                    active: false
-
-                    sourceComponent: Actuators {
-                        id: actuatorsPage
-
-                        keybindsEnabled: sidebarNav.keybindsEnabled
-                        isWebsocketConnected: sharedWebSocket.status === WebSocket.Open
-                    }
-
-                }
-
-                // 2
-                Loader {
-                    id: graphsPageLoader
-
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    asynchronous: true
-                    active: false
-
-                    sourceComponent: Graphs {
-                        id: graphsPage
-
-                        windowSeconds: sidebarNav.effectiveWindowSeconds
-                        global3StdFilter: sidebarNav.smoothAllActive
-                        editLayoutMode: sidebarNav.editLayoutActive
-                        dataSourceMode: dashboardPage.dataSourceMode
-                    }
-
-                }
-
-                // 3
-                Loader {
-                    id: videoPageLoader
-
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    asynchronous: true
-                    active: false
-
-                    sourceComponent: Video {
-                        id: videoPage
-                    }
-
-                }
-
-            }
-
-            Timer {
-                id: warmupTimer
-
-                interval: 400
-                running: true
-                repeat: false
-                onTriggered: {
-                    graphsPageLoader.active = true;
-                    actuatorsPageLoader.active = true;
-                    videoPageLoader.active = true;
-                }
+                keybindsEnabled: sidebarNav.keybindsEnabled
+                isWebsocketConnected: sharedWebSocket.status === WebSocket.Open
+                windowSeconds: sidebarNav.effectiveWindowSeconds
+                global3StdFilter: sidebarNav.smoothAllActive
+                editLayoutMode: sidebarNav.editLayoutActive
             }
 
             // Overlay toast container anchored at bottom-right, floating over page content
@@ -382,6 +313,32 @@ Kirigami.ApplicationWindow {
             target: backend
         }
 
+        titleDelegate: RowLayout {
+            spacing: Kirigami.Units.smallSpacing
+
+            Controls.ToolButton {
+                icon.name: "window-new"
+                text: "Popout Window"
+                display: Controls.AbstractButton.TextBesideIcon
+                enabled: pageHelper.activeInlinePage !== "" && !pageHelper.poppedOutPages[pageHelper.activeInlinePage]
+                Controls.ToolTip.visible: hovered
+                Controls.ToolTip.text: pageHelper.poppedOutPages[pageHelper.activeInlinePage] ? "Active view is already popped out" : "Pop out active view into a separate window (Alt+Click in sidebar)"
+                onClicked: pageHelper.openPageInNewWindow(pageHelper.activeInlinePage)
+            }
+
+            Controls.ToolButton {
+                icon.name: "view-split-left-right"
+                text: "Split View"
+                display: Controls.AbstractButton.TextBesideIcon
+                checkable: true
+                checked: pageHelper.splitViewActive
+                Controls.ToolTip.visible: hovered
+                Controls.ToolTip.text: pageHelper.splitViewActive ? "Close split view" : "Open side-by-side split view"
+                onClicked: pageHelper.toggleSplitView()
+            }
+
+        }
+
     }
 
     globalDrawer: Kirigami.GlobalDrawer {
@@ -401,37 +358,20 @@ Kirigami.ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.margins: Kirigami.Units.gridUnit / 4
+            activePageName: pageHelper.activeInlinePage
             unreadNotificationCount: notificationModel.unreadCount
-            // track all currently visible views so view helpers work for both single StackLayout and side-by-side multi-page layouts
-            visiblePages: {
-                var pages = [];
-                if (dashboardPage.visible)
-                    pages.push("dashboard");
-
-                if (actuatorsPage.visible)
-                    pages.push("actuators");
-
-                if (graphsPage.visible)
-                    pages.push("graphs");
-
-                if (videoPage.visible)
-                    pages.push("video");
-
-                return pages;
-            }
+            visiblePages: pageHelper.visiblePages
             onNavigateRequested: function(pageName) {
-                if (pageName === "dashboard") {
-                    contentStack.currentIndex = 0;
-                } else if (pageName === "actuators") {
-                    actuatorsPageLoader.active = true;
-                    contentStack.currentIndex = 1;
-                } else if (pageName === "graphs") {
-                    graphsPageLoader.active = true;
-                    contentStack.currentIndex = 2;
-                } else if (pageName === "video") {
-                    videoPageLoader.active = true;
-                    contentStack.currentIndex = 3;
-                }
+                pageHelper.navigateInline(pageName);
+            }
+            onOpenInLeftRequested: function(pageName) {
+                pageHelper.openPageInLeftPanel(pageName);
+            }
+            onOpenInRightRequested: function(pageName) {
+                pageHelper.openPageInRightPanel(pageName);
+            }
+            onOpenInNewWindowRequested: function(pageName) {
+                pageHelper.openPageInNewWindow(pageName);
             }
             onSettingsRequested: {
                 settingsDialog.open();

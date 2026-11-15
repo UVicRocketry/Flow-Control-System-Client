@@ -11,6 +11,9 @@ ListView {
     required property var visiblePages
 
     signal navigateRequested(string pageName)
+    signal openInLeftRequested(string pageName)
+    signal openInRightRequested(string pageName)
+    signal openInNewWindowRequested(string pageName)
 
     function isPageActive(pageName) {
         if (root.visiblePages && root.visiblePages.length > 0) {
@@ -76,9 +79,59 @@ ListView {
     delegate: Controls.ToolButton {
         id: navBtn
 
+        property int lastModifiers: Qt.NoModifier
+
         width: ListView.view.width
         highlighted: root.isPageActive(model.page)
-        onClicked: root.navigateRequested(model.page)
+        onClicked: {
+            var mods = navBtn.lastModifiers;
+            navBtn.lastModifiers = Qt.NoModifier;
+            if (mods & Qt.AltModifier)
+                root.openInNewWindowRequested(model.page);
+            else if (mods & Qt.ControlModifier)
+                root.openInRightRequested(model.page);
+            else if (mods & Qt.ShiftModifier)
+                root.openInLeftRequested(model.page);
+            else
+                root.navigateRequested(model.page);
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onPressed: function(mouse) {
+                if (mouse.button === Qt.RightButton) {
+                    navContextMenu.popup();
+                    mouse.accepted = true;
+                } else {
+                    navBtn.lastModifiers = mouse.modifiers;
+                    mouse.accepted = false;
+                }
+            }
+        }
+
+        Controls.Menu {
+            id: navContextMenu
+
+            Controls.MenuItem {
+                text: "Open in left panel (Shift+Click)"
+                icon.name: "go-previous"
+                onTriggered: root.openInLeftRequested(model.page)
+            }
+
+            Controls.MenuItem {
+                text: "Open in right panel (Ctrl+Click)"
+                icon.name: "go-next"
+                onTriggered: root.openInRightRequested(model.page)
+            }
+
+            Controls.MenuItem {
+                text: "Open in new window (Alt+Click)"
+                icon.name: "window-new"
+                onTriggered: root.openInNewWindowRequested(model.page)
+            }
+
+        }
 
         RowLayout {
             spacing: Kirigami.Units.largeSpacing

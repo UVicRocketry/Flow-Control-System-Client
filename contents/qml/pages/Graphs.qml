@@ -221,11 +221,11 @@ ColumnLayout {
             ch = graphsRoot.availableChannels[Math.floor(Math.random() * graphsRoot.availableChannels.length)];
         else
             ch = {
-                "key": "P_RUN_TANK",
-                "title": "New Telemetry Graph",
-                "unit": "PSI",
-                "color": "theme:highlight"
-            };
+            "key": "P_RUN_TANK",
+            "title": "New Telemetry Graph",
+            "unit": "PSI",
+            "color": "theme:highlight"
+        };
         var draftCard = {
             "title": ch.title || ch.key,
             "channelKey": ch.key,
@@ -285,10 +285,11 @@ ColumnLayout {
             let card = cards[k] as GraphCard;
             if (card)
                 card.applyChannelData(batchRes[String(reqIdx)]);
+
         }
     }
 
-    spacing: Kirigami.Units.mediumSpacing
+    spacing: Kirigami.Units.gridUnit / 2
     Layout.fillWidth: true
     Layout.fillHeight: true
     Component.onCompleted: {
@@ -373,147 +374,157 @@ ColumnLayout {
         id: graphsModel
     }
 
-    // scrollable grid of GraphCards + add graph button
-    Controls.ScrollView {
-        id: graphsScroll
-
+    // scrollable grid of GraphCards + add graph button with dedicated scrollbar alongside
+    RowLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        clip: true
-        rightPadding: 0
+        spacing: 0
 
-        GridLayout {
-            id: graphsGrid
+        Flickable {
+            id: graphsFlick
 
-            // derive fixed single-column width from scroll view width and column count so cards never warble
-            readonly property real singleColumnWidth: {
-                var cols = Math.max(1, columns);
-                var totalSpacing = (cols - 1) * columnSpacing;
-                return Math.max(120, Math.floor((width - totalSpacing) / cols));
-            }
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            contentWidth: width
+            contentHeight: graphsGrid.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+            Controls.ScrollBar.vertical: graphsScrollBar
 
-            width: graphsScroll.availableWidth
-            columns: width < 700 ? 1 : (width < 1080 ? 2 : 3)
-            columnSpacing: Kirigami.Units.mediumSpacing
-            rowSpacing: Kirigami.Units.mediumSpacing
-            onColumnsChanged: graphsRoot.syncRowHeights(-1, 0)
+            GridLayout {
+                id: graphsGrid
 
-            Repeater {
-                id: cardsRepeater
-
-                model: graphsModel
-
-                GraphCard {
-                    cardIndex: index
-                    totalCards: graphsModel.count
-                    title: model.title
-                    channelKey: model.channelKey
-                    xAxisLabel: model.xAxisLabel
-                    yAxisLabel: model.yAxisLabel
-                    accentColor: model.accentColor
-                    autoScale: model.autoScale
-                    manualMinY: model.manualMinY
-                    manualMaxY: model.manualMaxY
-                    minYRange: model.minYRange
-                    filterOutliers3Std: model.filterOutliers3Std
-                    smoothingWindow: model.smoothingWindow
-                    maxBuckets: model.maxBuckets
-                    showGrid: model.showGrid
-                    showFill: model.showFill
-                    colSpan: Math.min(graphsGrid.columns, model.colSpan)
-                    baseColumnWidth: graphsGrid.singleColumnWidth
-                    columnSpacing: graphsGrid.columnSpacing
-                    cardHeight: model.cardHeight
-                    editLayoutMode: graphsRoot.editLayoutMode
-                    dataSourceMode: graphsRoot.dataSourceMode
-                    windowSeconds: graphsRoot.windowSeconds
-                    useCustomRange: graphsRoot.dataSourceMode !== "live" && graphsRoot.customSpanActive
-                    customRangeStart: graphsRoot.rangeStart
-                    customRangeEnd: graphsRoot.rangeEnd
-                    onEditRequested: function(idx) {
-                        var item = graphsModel.get(idx);
-                        graphEditModal.openForCard(idx, item, graphsRoot.availableChannels);
-                    }
-                    onRemoveRequested: function(idx) {
-                        if (idx >= 0 && idx < graphsModel.count) {
-                            graphsModel.remove(idx);
-                            graphsRoot.syncRowHeights(-1, 0);
-                            graphsRoot.persistGraphsConfig();
-                        }
-                    }
-                    onMoveRequested: function(fromIdx, toIdx) {
-                        if (fromIdx >= 0 && fromIdx < graphsModel.count && toIdx >= 0 && toIdx < graphsModel.count) {
-                            let movedH = graphsModel.get(toIdx).cardHeight;
-                            graphsModel.move(fromIdx, toIdx, 1);
-                            graphsRoot.syncRowHeights(toIdx, movedH);
-                            graphsRoot.persistGraphsConfig();
-                        }
-                    }
-                    onResizeRequested: function(idx, newSpan, newHeight) {
-                        if (idx >= 0 && idx < graphsModel.count) {
-                            graphsModel.setProperty(idx, "colSpan", newSpan);
-                            graphsRoot.syncRowHeights(idx, newHeight);
-                            graphsRoot.persistGraphsConfig();
-                        }
-                    }
+                // derive fixed single-column width from flickable width and column count so cards never warble
+                readonly property real singleColumnWidth: {
+                    var cols = Math.max(1, columns);
+                    var totalSpacing = (cols - 1) * columnSpacing;
+                    return Math.max(120, (width - totalSpacing) / cols);
                 }
 
-            }
+                width: graphsFlick.width
+                columns: width < 700 ? 1 : (width < 1080 ? 2 : 3)
+                columnSpacing: Kirigami.Units.gridUnit / 2
+                rowSpacing: Kirigami.Units.gridUnit / 2
+                onColumnsChanged: graphsRoot.syncRowHeights(-1, 0)
 
-            // placeholder card to add a new graph
-            Kirigami.Card {
-                id: addGraphPlaceholderCard
+                Repeater {
+                    id: cardsRepeater
 
-                implicitWidth: graphsGrid.singleColumnWidth
-                width: graphsGrid.singleColumnWidth
-                Layout.fillWidth: false
-                Layout.columnSpan: 1
-                Layout.preferredWidth: graphsGrid.singleColumnWidth
-                Layout.minimumWidth: graphsGrid.singleColumnWidth
-                Layout.maximumWidth: graphsGrid.singleColumnWidth
-                Layout.minimumHeight: 210
-                Layout.preferredHeight: Math.max(210, graphsRoot.placeholderRowHeight)
+                    model: graphsModel
 
-                contentItem: Item {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-
-                    ColumnLayout {
-                        anchors.centerIn: parent
-                        spacing: Kirigami.Units.smallSpacing
-
-                        Controls.Label {
-                            text: "+"
-                            font.pixelSize: 48
-                            font.bold: true
-                            color: addCardMouse.containsMouse ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
-                            Layout.alignment: Qt.AlignHCenter
+                    GraphCard {
+                        cardIndex: index
+                        totalCards: graphsModel.count
+                        title: model.title
+                        channelKey: model.channelKey
+                        xAxisLabel: model.xAxisLabel
+                        yAxisLabel: model.yAxisLabel
+                        accentColor: model.accentColor
+                        autoScale: model.autoScale
+                        manualMinY: model.manualMinY
+                        manualMaxY: model.manualMaxY
+                        minYRange: model.minYRange
+                        filterOutliers3Std: model.filterOutliers3Std
+                        smoothingWindow: model.smoothingWindow
+                        maxBuckets: model.maxBuckets
+                        showGrid: model.showGrid
+                        showFill: model.showFill
+                        colSpan: Math.min(graphsGrid.columns, model.colSpan)
+                        baseColumnWidth: graphsGrid.singleColumnWidth
+                        columnSpacing: graphsGrid.columnSpacing
+                        cardHeight: model.cardHeight
+                        editLayoutMode: graphsRoot.editLayoutMode
+                        dataSourceMode: graphsRoot.dataSourceMode
+                        windowSeconds: graphsRoot.windowSeconds
+                        useCustomRange: graphsRoot.dataSourceMode !== "live" && graphsRoot.customSpanActive
+                        customRangeStart: graphsRoot.rangeStart
+                        customRangeEnd: graphsRoot.rangeEnd
+                        onEditRequested: function(idx) {
+                            var item = graphsModel.get(idx);
+                            graphEditModal.openForCard(idx, item, graphsRoot.availableChannels);
                         }
-
-                        Kirigami.Heading {
-                            text: "Add Graph"
-                            level: 3
-                            color: addCardMouse.containsMouse ? Kirigami.Theme.textColor : Kirigami.Theme.disabledTextColor
-                            Layout.alignment: Qt.AlignHCenter
+                        onRemoveRequested: function(idx) {
+                            if (idx >= 0 && idx < graphsModel.count) {
+                                graphsModel.remove(idx);
+                                graphsRoot.syncRowHeights(-1, 0);
+                                graphsRoot.persistGraphsConfig();
+                            }
                         }
-
-                        Controls.Label {
-                            text: "Click to add a new telemetry graph card"
-                            font.pointSize: Kirigami.Theme.smallFont.pointSize
-                            color: Kirigami.Theme.disabledTextColor
-                            horizontalAlignment: Text.AlignHCenter
-                            Layout.alignment: Qt.AlignHCenter
+                        onMoveRequested: function(fromIdx, toIdx) {
+                            if (fromIdx >= 0 && fromIdx < graphsModel.count && toIdx >= 0 && toIdx < graphsModel.count) {
+                                let movedH = graphsModel.get(toIdx).cardHeight;
+                                graphsModel.move(fromIdx, toIdx, 1);
+                                graphsRoot.syncRowHeights(toIdx, movedH);
+                                graphsRoot.persistGraphsConfig();
+                            }
                         }
-
+                        onResizeRequested: function(idx, newSpan, newHeight) {
+                            if (idx >= 0 && idx < graphsModel.count) {
+                                graphsModel.setProperty(idx, "colSpan", newSpan);
+                                graphsRoot.syncRowHeights(idx, newHeight);
+                                graphsRoot.persistGraphsConfig();
+                            }
+                        }
                     }
 
-                    MouseArea {
-                        id: addCardMouse
+                }
 
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: graphsRoot.addNewGraphCard()
+                // placeholder card to add a new graph
+                Kirigami.Card {
+                    id: addGraphPlaceholderCard
+
+                    implicitWidth: graphsGrid.singleColumnWidth
+                    width: graphsGrid.singleColumnWidth
+                    Layout.fillWidth: false
+                    Layout.columnSpan: 1
+                    Layout.preferredWidth: graphsGrid.singleColumnWidth
+                    Layout.minimumWidth: graphsGrid.singleColumnWidth
+                    Layout.maximumWidth: graphsGrid.singleColumnWidth
+                    Layout.minimumHeight: 210
+                    Layout.preferredHeight: Math.max(210, graphsRoot.placeholderRowHeight)
+
+                    contentItem: Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+
+                        ColumnLayout {
+                            anchors.centerIn: parent
+                            spacing: Kirigami.Units.smallSpacing
+
+                            Controls.Label {
+                                text: "+"
+                                font.pixelSize: 48
+                                font.bold: true
+                                color: addCardMouse.containsMouse ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
+                                Layout.alignment: Qt.AlignHCenter
+                            }
+
+                            Kirigami.Heading {
+                                text: "Add Graph"
+                                level: 3
+                                color: addCardMouse.containsMouse ? Kirigami.Theme.textColor : Kirigami.Theme.disabledTextColor
+                                Layout.alignment: Qt.AlignHCenter
+                            }
+
+                            Controls.Label {
+                                text: "Click to add a new telemetry graph card"
+                                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                color: Kirigami.Theme.disabledTextColor
+                                horizontalAlignment: Text.AlignHCenter
+                                Layout.alignment: Qt.AlignHCenter
+                            }
+
+                        }
+
+                        MouseArea {
+                            id: addCardMouse
+
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: graphsRoot.addNewGraphCard()
+                        }
+
                     }
 
                 }
@@ -522,14 +533,15 @@ ColumnLayout {
 
         }
 
-        // show vertical scrollbar whenever graphsRoot is visible (supports single or multi-page views)
-        Controls.ScrollBar.vertical: Controls.ScrollBar {
-            parent: contentStack.parent
-            anchors.top: parent.top
-            anchors.left: parent.right
-            anchors.bottom: parent.bottom
-            anchors.leftMargin: Kirigami.Units.smallSpacing
+        Controls.ScrollBar {
+            id: graphsScrollBar
+
+            Layout.fillHeight: true
+            Layout.leftMargin: (Kirigami.Units.gridUnit / 2) - implicitWidth
+            Layout.rightMargin: -(Kirigami.Units.gridUnit / 2)
+            orientation: Qt.Vertical
             policy: graphsRoot.visible ? Controls.ScrollBar.AsNeeded : Controls.ScrollBar.AlwaysOff
+            visible: graphsRoot.visible && graphsFlick.contentHeight > graphsFlick.height
             enabled: graphsRoot.visible
         }
 

@@ -55,7 +55,7 @@ ColumnLayout {
         }
     }
 
-    spacing: Kirigami.Units.largeSpacing
+    spacing: Kirigami.Units.gridUnit / 2
     Layout.fillWidth: true
     Layout.fillHeight: true
     focus: visible && keybindsEnabled && isWebsocketConnected
@@ -91,53 +91,75 @@ ColumnLayout {
 
     }
 
-    // Connected scrollable grid of ActuatorCards
-    Controls.ScrollView {
-        id: actuatorsScroll
-
+    // Connected scrollable grid of ActuatorCards with dedicated scrollbar in the outer right margin
+    RowLayout {
         visible: actuators.isWebsocketConnected
         Layout.fillWidth: true
         Layout.fillHeight: true
-        clip: true
-        rightPadding: 0
+        spacing: 0
 
-        GridLayout {
-            id: actuatorsGrid
+        Flickable {
+            id: actuatorsFlick
 
-            readonly property real singleColumnWidth: {
-                var cols = Math.max(1, columns);
-                var totalSpacing = (cols - 1) * columnSpacing;
-                return Math.max(180, Math.floor((width - totalSpacing) / cols));
-            }
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            contentWidth: width
+            contentHeight: actuatorsGrid.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+            Controls.ScrollBar.vertical: actuatorsScrollBar
 
-            width: actuatorsScroll.availableWidth
-            columns: width < 700 ? 1 : 2
-            columnSpacing: Kirigami.Units.mediumSpacing
-            rowSpacing: Kirigami.Units.mediumSpacing
+            GridLayout {
+                id: actuatorsGrid
 
-            Repeater {
-                model: actuators.valveDefs
+                readonly property real singleColumnWidth: {
+                    var cols = Math.max(1, columns);
+                    var totalSpacing = (cols - 1) * columnSpacing;
+                    return Math.max(180, (width - totalSpacing) / cols);
+                }
 
-                ActuatorCard {
-                    required property var modelData
+                width: actuatorsFlick.width
+                columns: width < 700 ? 1 : 2
+                columnSpacing: Kirigami.Units.gridUnit / 2
+                rowSpacing: Kirigami.Units.gridUnit / 2
 
-                    valveDef: modelData
-                    baseColumnWidth: actuatorsGrid.singleColumnWidth
-                    currentState: actuators.valveStates[modelData.id] ?? modelData.normal_state ?? "CLOSED"
-                    armed: actuators.isArmed
-                    keybindsEnabled: actuators.keybindsEnabled
-                    onActuateRequested: function(valveId, action) {
-                        if (backend)
-                            backend.actuate_valve(valveId, action);
+                Repeater {
+                    model: actuators.valveDefs
 
+                    ActuatorCard {
+                        required property var modelData
+
+                        valveDef: modelData
+                        baseColumnWidth: actuatorsGrid.singleColumnWidth
+                        currentState: actuators.valveStates[modelData.id] ?? modelData.normal_state ?? "CLOSED"
+                        armed: actuators.isArmed
+                        keybindsEnabled: actuators.keybindsEnabled
+                        onActuateRequested: function(valveId, action) {
+                            if (backend)
+                                backend.actuate_valve(valveId, action);
+
+                        }
+                        onConfirmRequested: function(valveId, action, label) {
+                            actuators.openActionConfirm(valveId, action, label);
+                        }
                     }
-                    onConfirmRequested: function(valveId, action, label) {
-                        actuators.openActionConfirm(valveId, action, label);
-                    }
+
                 }
 
             }
 
+        }
+
+        Controls.ScrollBar {
+            id: actuatorsScrollBar
+
+            Layout.fillHeight: true
+            Layout.leftMargin: (Kirigami.Units.gridUnit / 2) - implicitWidth
+            Layout.rightMargin: -(Kirigami.Units.gridUnit / 2)
+            orientation: Qt.Vertical
+            policy: actuators.visible ? Controls.ScrollBar.AsNeeded : Controls.ScrollBar.AlwaysOff
+            visible: actuators.visible && actuatorsFlick.contentHeight > actuatorsFlick.height
+            enabled: actuators.visible
         }
 
     }
