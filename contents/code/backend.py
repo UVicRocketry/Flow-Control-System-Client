@@ -332,6 +332,54 @@ class Backend(QtCore.QObject):
     def set_view_refresh_hz(self, hz: int):
         self.view_refresh_hz = hz
 
+    @QtCore.Slot(result="QVariantMap")
+    def get_split_config(self) -> dict:
+        """returns saved split view state, pane positions, and sizing ratio from config.json."""
+        ui_sec = self._config_data.get("ui", {})
+        if not isinstance(ui_sec, dict):
+            ui_sec = {}
+        try:
+            ratio = float(ui_sec.get("split_ratio", 0.5))
+        except (TypeError, ValueError):
+            ratio = 0.5
+        return {
+            "split_active": bool(ui_sec.get("split_active", False)),
+            "left_page": str(ui_sec.get("left_page", "dashboard") or "dashboard"),
+            "right_page": str(ui_sec.get("right_page", "") or ""),
+            "last_right_page": str(ui_sec.get("last_right_page", "") or ""),
+            "focused_pane": str(ui_sec.get("focused_pane", "left") or "left"),
+            "split_ratio": max(0.05, min(0.95, ratio)),
+        }
+
+    @QtCore.Slot(bool, str, str, str, str, float)
+    def save_split_config(
+        self,
+        split_active: bool,
+        left_page: str,
+        right_page: str,
+        last_right_page: str,
+        focused_pane: str,
+        split_ratio: float,
+    ) -> None:
+        """persists split view state, pane positions, and sizing ratio to config.json."""
+        if "ui" not in self._config_data or not isinstance(
+            self._config_data["ui"], dict
+        ):
+            self._config_data["ui"] = {}
+        ui_sec = self._config_data["ui"]
+        ratio = round(max(0.05, min(0.95, float(split_ratio))), 4)
+        updated = {
+            "split_active": bool(split_active),
+            "left_page": str(left_page or "dashboard"),
+            "right_page": str(right_page or ""),
+            "last_right_page": str(last_right_page or ""),
+            "focused_pane": "right" if focused_pane == "right" else "left",
+            "split_ratio": ratio,
+        }
+        if any(ui_sec.get(k) != v for k, v in updated.items()):
+            ui_sec.update(updated)
+            self.save_config(self._config_data)
+
     @QtCore.Slot()
     def connect_to_server(self):
         """signals QML/listeners to initiate WebSocket connection."""

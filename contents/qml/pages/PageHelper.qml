@@ -16,12 +16,22 @@ Item {
     // Page layout & popout window state
     property string leftPageName: "dashboard"
     property string rightPageName: ""
+    property string lastRightPageName: ""
     property string focusedPane: "left"
     property real splitRatio: 0.5
+    property bool _restoringSplitState: false
     property var poppedOutPages: ({
     })
     property var popoutWindows: ({
     })
+    onLeftPageNameChanged: scheduleSaveSplitState()
+    onRightPageNameChanged: {
+        if (rightPageName !== "")
+            lastRightPageName = rightPageName;
+        scheduleSaveSplitState();
+    }
+    onFocusedPaneChanged: scheduleSaveSplitState()
+    onSplitRatioChanged: scheduleSaveSplitState()
     readonly property var pageOrder: ["dashboard", "actuators", "graphs", "video"]
     readonly property var pageMeta: ({
         "dashboard": {
@@ -255,7 +265,46 @@ Item {
         }
     }
 
+    function loadSplitState() {
+        if (typeof backend === "undefined" || !backend || typeof backend.get_split_config !== "function")
+            return ;
+
+        _restoringSplitState = true;
+        let cfg = backend.get_split_config();
+        let savedLeft = (cfg.left_page && pageOrder.indexOf(cfg.left_page) !== -1) ? cfg.left_page : "dashboard";
+        let savedLastRight = (cfg.last_right_page && pageOrder.indexOf(cfg.last_right_page) !== -1) ? cfg.last_right_page : "";
+        let savedRight = (cfg.right_page && pageOrder.indexOf(cfg.right_page) !== -1 && cfg.right_page !== savedLeft) ? cfg.right_page : "";
+        let isActive = !!cfg.split_active && savedRight !== "";
+        leftPageName = savedLeft;
+        lastRightPageName = savedLastRight !== "" ? savedLastRight : savedRight;
+        rightPageName = isActive ? savedRight : "";
+        focusedPane = (isActive && cfg.focused_pane === "right") ? "right" : "left";
+        let ratio = Number(cfg.split_ratio);
+        if (!isNaN(ratio) && ratio >= 0.05 && ratio <= 0.95)
+            splitRatio = ratio;
+
+        _restoringSplitState = false;
+    }
+
+    function saveSplitState() {
+        if (_restoringSplitState || typeof backend === "undefined" || !backend || typeof backend.save_split_config !== "function")
+            return ;
+
+        backend.save_split_config(splitViewActive, leftPageName, rightPageName, lastRightPageName, focusedPane, splitRatio);
+    }
+
+    function scheduleSaveSplitState() {
+        if (_restoringSplitState)
+            return ;
+
+        saveSplitStateTimer.restart();
+    }
+
     function closeAllPopouts() {
+        if (saveSplitStateTimer.running) {
+            saveSplitStateTimer.stop();
+            saveSplitState();
+        }
         let keys = Object.keys(popoutWindows);
         for (let i = 0; i < keys.length; ++i) returnPoppedOutPage(keys[i])
     }
@@ -265,7 +314,7 @@ Item {
             rightPageName = "";
             focusedPane = "left";
         } else {
-            let candidate = pickDefaultRightPage(leftPageName);
+            let candidate = (lastRightPageName !== "" && lastRightPageName !== leftPageName && !poppedOutPages[lastRightPageName]) ? lastRightPageName : pickDefaultRightPage(leftPageName);
             if (candidate)
                 rightPageName = candidate;
 
@@ -304,7 +353,18 @@ Item {
         collapseSplitTo(leftPageName);
     }
 
-    Component.onCompleted: syncPagePlacements()
+    Component.onCompleted: {
+        loadSplitState();
+        syncPagePlacements();
+    }
+
+    Timer {
+        id: saveSplitStateTimer
+
+        interval: 150
+        repeat: false
+        onTriggered: pageHelperRoot.saveSplitState()
+    }
 
     QtObject {
         id: popoutWindowsOwner
