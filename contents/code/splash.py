@@ -66,7 +66,11 @@ class SplashScreen(QQuickView):
             if self._closed:
                 return
             self._closed = True
+            root = self.root_object()
+            if root is not None:
+                root.set_property("visible", False)
             self.close()
+            self.delete_later()
             if window is not None and hasattr(window, "request_activate"):
                 window.request_activate()
 
@@ -74,12 +78,13 @@ class SplashScreen(QQuickView):
         if window is not None and frame_signal is not None:
             def on_frame():
                 try:
-                    frame_signal.disconnect(on_frame)
+                    frame_signal.disconnect(self._on_frame)
                 except Exception:
                     pass
                 QTimer.single_shot(0, close_safely)
 
-            frame_signal.connect(on_frame, Qt.ConnectionType.QueuedConnection)
-            QTimer.single_shot(3000, close_safely)
+            self._on_frame = on_frame
+            frame_signal.connect(self._on_frame, Qt.ConnectionType.QueuedConnection)
+            QTimer.single_shot(1500, close_safely)
         else:
             close_safely()

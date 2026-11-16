@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Window
 
 // startup splash screen displaying the application icon and backend initialization status
 Rectangle {
@@ -102,7 +103,7 @@ Rectangle {
                     to: barChunk.parent.width
                     duration: 1100
                     loops: Animation.Infinite
-                    running: splashRoot.visible
+                    running: splashRoot.visible && splashRoot.Window.visibility !== Window.Hidden
                 }
 
             }
