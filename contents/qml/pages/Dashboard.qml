@@ -145,6 +145,7 @@ ColumnLayout {
                     selectedDataName: fn.selectedDataName
                     effectiveDataMode: fn.effectiveDataMode
                     isSelectedMarkedDeleted: fn.selectedDataName !== "" && fn.isMarkedForDeletion(fn.selectedDataName)
+                    isWebsocketConnected: fn.isWebsocketConnected
                     onShowInBrowserRequested: {
                         if (typeof backend !== "undefined" && backend !== null && backend.show_in_file_browser !== undefined)
                             backend.show_in_file_browser(fn.selectedDataName);
@@ -152,6 +153,7 @@ ColumnLayout {
                     }
                     onOpenDataRequested: fn.openSelectedData()
                     onDownloadDataRequested: fn.downloadSelectedData()
+                    onPushDataRequested: fn.pushSelectedData()
                     onDeleteDataRequested: {
                         fn.targetActionData = fn.selectedDataName;
                         dataDialogs.openDeleteConfirm();

@@ -155,6 +155,15 @@ QtObject {
             backend.download_remote_data(selectedDataName);
     }
 
+    function pushSelectedData() {
+        if (!selectedDataName)
+            return ;
+
+        var mode = dataModeFor(selectedDataName);
+        if (typeof backend !== "undefined" && backend !== null && backend.push_data_to_remote !== undefined)
+            backend.push_data_to_remote(mode, selectedDataName);
+    }
+
     function refreshData(mode) {
         if (typeof backend === "undefined" || backend === null)
             return ;

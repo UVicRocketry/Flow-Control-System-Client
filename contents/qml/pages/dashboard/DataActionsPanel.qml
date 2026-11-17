@@ -10,6 +10,7 @@ ColumnLayout {
     required property string selectedDataName
     required property string effectiveDataMode
     required property bool isSelectedMarkedDeleted
+    property bool isWebsocketConnected: false
     readonly property bool hasValidSelection: selectedDataName !== "" && !isSelectedMarkedDeleted
 
     signal showInBrowserRequested()
@@ -17,6 +18,7 @@ ColumnLayout {
     signal deleteDataRequested()
     signal undoDeleteRequested()
     signal downloadDataRequested()
+    signal pushDataRequested()
 
     Layout.preferredWidth: implicitWidth
     Layout.maximumWidth: implicitWidth
@@ -56,10 +58,17 @@ ColumnLayout {
     Controls.Button {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
-        text: "Download data..."
-        icon.name: "edit-download"
-        enabled: root.hasValidSelection && root.effectiveDataMode === "remote"
-        onClicked: root.downloadDataRequested()
+        text: root.effectiveDataMode === "local" ? "Push to server..." : "Download data..."
+        icon.name: root.effectiveDataMode === "local" ? "network-server" : "edit-download"
+        enabled: root.hasValidSelection && root.isWebsocketConnected
+        Controls.ToolTip.visible: hovered && !enabled && root.hasValidSelection && !root.isWebsocketConnected
+        Controls.ToolTip.text: "Connect to the valve cart server to transfer data."
+        onClicked: {
+            if (root.effectiveDataMode === "local")
+                root.pushDataRequested();
+            else
+                root.downloadDataRequested();
+        }
     }
 
     Controls.Button {
