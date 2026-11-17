@@ -282,6 +282,9 @@ class Backend(QtCore.QObject):
         if curr != hz:
             self._config_data["ui"]["view_refresh_hz"] = hz
             self.save_config(self._config_data)
+            if self._telemetry_ui_timer.active:
+                self._telemetry_ui_timer.stop()
+                self._schedule_telemetry_ui_update()
             self.view_refresh_hz_changed.emit(hz)
 
     @QtCore.Slot(result="QVariantMap")
@@ -722,6 +725,51 @@ class Backend(QtCore.QObject):
             "mode": "download",
         }
         self.ws_send_requested.emit(json.dumps(payload))
+
+    @QtCore.Slot(str, str)
+    @QtCore.Slot(str)
+    def push_data_to_remote(self, mode_or_path: str, filename: str = ""):
+        """Pushes a local or external CSV/JSONL telemetry file to the server."""
+        target = (filename if filename else mode_or_path).strip()
+        if not target:
+            self.log_warn("No local file selected to push.")
+            return
+        if not self._ws_connected:
+            self.log_warn(
+                "Cannot push data: not connected to the valve cart server."
+            )
+            return
+
+        try:
+            resolved_path = resolve_data_file(target, self._known_channels)
+        except Exception as err:
+            self.log_error(f'Failed to resolve data file "{target}": {err}')
+            return
+
+        if resolved_path.suffix.lower() not in (".csv", ".jsonl"):
+            self.log_warn(
+                f'Cannot push "{resolved_path.name}": only .csv or .jsonl files are supported.'
+            )
+            return
+
+        try:
+            content = resolved_path.read_text(
+                encoding="utf-8", errors="replace"
+            )
+        except Exception as err:
+            self.log_error(
+                f'Failed to read "{resolved_path.name}" for upload: {err}'
+            )
+            return
+
+        payload = {
+            "type": "remote_data_req",
+            "operation": "put",
+            "filename": resolved_path.name,
+            "content": content,
+        }
+        self.ws_send_requested.emit(json.dumps(payload))
+        self.log_info(f'Pushing "{resolved_path.name}" to valve cart...')
 
     @QtCore.Slot(str, str)
     def mark_data_for_deletion(self, mode: str, filename: str):

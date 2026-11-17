@@ -135,6 +135,14 @@ Item {
             videoPageLoader.active = true;
     }
 
+    function reloadGraphsView() {
+        if (!graphsPageLoader.active)
+            return ;
+
+        graphsPageLoader.active = false;
+        graphsPageLoader.active = true;
+    }
+
     function pickDefaultRightPage(excludeName) {
         for (let i = 0; i < pageOrder.length; ++i) {
             if (pageOrder[i] !== excludeName && !poppedOutPages[pageOrder[i]])
@@ -564,6 +572,15 @@ Item {
             actuatorsPageLoader.active = true;
             videoPageLoader.active = true;
         }
+    }
+
+    Connections {
+        function onView_refresh_hz_changed() {
+            pageHelperRoot.reloadGraphsView();
+        }
+
+        target: typeof backend !== "undefined" ? backend : null
+        ignoreUnknownSignals: true
     }
 
 }
