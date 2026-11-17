@@ -44,8 +44,11 @@ Kirigami.Card {
     property real customRangeStart: 0
     property real customRangeEnd: 30
     // computed / queried state
-    property var history: []
-    readonly property bool hasData: root.history.length > 0
+    property var tsData: []
+    property var vsData: []
+    property var minVsData: []
+    property var maxVsData: []
+    readonly property bool hasData: root.tsData.length > 0
     property real statMin: 0
     property real statMax: 100
     property real statMean: 0
@@ -55,6 +58,7 @@ Kirigami.Card {
     property real plotTMin: 0
     property real plotTMax: 30
     property bool _ready: false
+    property bool _staleWhileOffscreen: true
 
     signal editRequested(int index)
     signal removeRequested(int index)
@@ -62,8 +66,11 @@ Kirigami.Card {
     signal resizeRequested(int index, int newColSpan, real newHeight)
 
     function applyChannelData(res) {
-        if (res && res.points !== undefined) {
-            root.history = res.points;
+        if (res && res.ts !== undefined) {
+            root.tsData = res.ts;
+            root.vsData = res.vs;
+            root.minVsData = res.minVs;
+            root.maxVsData = res.maxVs;
             root.statMin = Number(res.min ?? 0);
             root.statMax = Number(res.max ?? 100);
             root.statMean = Number(res.mean ?? 0);
@@ -77,10 +84,15 @@ Kirigami.Card {
     }
 
     function refreshFromBackend() {
+        if (!root.visible) {
+            root._staleWhileOffscreen = true;
+            return ;
+        }
         if (typeof backend === "undefined" || backend === null || typeof backend.get_channel_data !== "function" || root.channelKey === "") {
             plotCanvas.requestPaint();
             return ;
         }
+        root._staleWhileOffscreen = false;
         // pass negative windowSeconds when using preset trailing windows so backend slices most recent samples
         var tStartArg = root.useCustomRange ? root.customRangeStart : -root.windowSeconds;
         var tEndArg = root.useCustomRange ? root.customRangeEnd : -1;
@@ -99,7 +111,6 @@ Kirigami.Card {
     Layout.preferredHeight: Math.max(210, root.cardHeight)
     Component.onCompleted: {
         root._ready = true;
-        refreshFromBackend();
     }
     onChannelKeyChanged: {
         if (root._ready)
@@ -124,12 +135,7 @@ Kirigami.Card {
     onAutoScaleChanged: plotCanvas.requestPaint()
     onManualMinYChanged: plotCanvas.requestPaint()
     onManualMaxYChanged: plotCanvas.requestPaint()
-    onAccentColorChanged: plotCanvas.requestPaint()
-    onResolvedColorChanged: plotCanvas.requestPaint()
-    onShowGridChanged: plotCanvas.requestPaint()
     onShowFillChanged: plotCanvas.requestPaint()
-    onXAxisLabelChanged: plotCanvas.requestPaint()
-    onYAxisLabelChanged: plotCanvas.requestPaint()
 
     header: GraphCardHeader {
         cardIndex: root.cardIndex
@@ -140,7 +146,7 @@ Kirigami.Card {
         resolvedColor: root.resolvedColor
         filterOutliers3Std: root.filterOutliers3Std
         smoothingWindow: root.smoothingWindow
-        hasData: root.history.length > 0
+        hasData: root.hasData
         currentValue: root.currentValue
         editLayoutMode: root.editLayoutMode
         onEditRequested: function(idx) {
@@ -166,7 +172,10 @@ Kirigami.Card {
             GraphCanvas {
                 id: plotCanvas
 
-                history: root.history
+                tsData: root.tsData
+                vsData: root.vsData
+                minVsData: root.minVsData
+                maxVsData: root.maxVsData
                 hasData: root.hasData
                 channelKey: root.channelKey
                 xAxisLabel: root.xAxisLabel
@@ -190,7 +199,7 @@ Kirigami.Card {
             }
 
             GraphCardFooter {
-                hasData: root.history.length > 0
+                hasData: root.hasData
                 statMin: root.statMin
                 statMax: root.statMax
                 statMean: root.statMean

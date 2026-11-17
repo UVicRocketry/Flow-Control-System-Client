@@ -1,13 +1,17 @@
 import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
+import QtQuick.Shapes
 import org.kde.kirigami as Kirigami
 
-// plot canvas area with telemetry data, interactive crosshair, and hover readout pill
+// GPU-accelerated plot area using Scene Graph primitives for axes/grid/crosshair and QtQuick.Shapes for telemetry curves
 Item {
     id: root
 
-    required property var history
+    required property var tsData
+    required property var vsData
+    required property var minVsData
+    required property var maxVsData
     required property bool hasData
     required property string channelKey
     required property string xAxisLabel
@@ -28,26 +32,30 @@ Item {
     required property real plotTMax
     required property bool useCustomRange
     required property string dataSourceMode
-    // hover crosshair state (rendered via Scene Graph Rectangle primitives, zero Canvas repaints on hover)
+    // hover crosshair state (rendered via Scene Graph Rectangle primitives)
     property bool isHoveringPlot: false
     property real hoverMouseX: 0
     property real hoverMouseY: 0
     property int hoveredPointIndex: -1
     property real hoverPtX: 0
     property real hoverPtY: 0
-    property var screenPoints: []
-    property string _lastAxesKey: ""
+    property var screenXs: []
+    property var screenYs: []
+    property real lastPtX: 0
+    property real lastPtY: 0
+    property bool hasValidPlotPoints: false
     readonly property real padL: root.yAxisLabel !== "" ? 58 : 44
     readonly property real padR: 14
     readonly property real padT: 10
     readonly property real padB: root.xAxisLabel !== "" ? 32 : 20
     readonly property real plotW: Math.max(0, width - padL - padR)
     readonly property real plotH: Math.max(0, height - padT - padB)
+    readonly property var xTickFractions: root.plotW < 180 ? [0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1]
     readonly property var computedYBounds: {
         var minV = root.manualMinY;
         var maxV = root.manualMaxY;
         if (root.autoScale) {
-            if (root.history.length > 0) {
+            if (root.hasData) {
                 minV = root.statMin;
                 maxV = root.statMax;
             } else {
@@ -70,77 +78,171 @@ Item {
         };
     }
 
+    function formatXTickLabel(frac) {
+        var t_min = root.plotTMin;
+        var dt = Math.max(0.001, root.plotTMax - t_min);
+        if (root.useCustomRange || root.dataSourceMode !== "live") {
+            let absT = t_min + frac * dt;
+            return absT.toFixed(1) + "s";
+        }
+        let secRemaining = dt * (1 - frac);
+        if (frac === 1 || secRemaining < 0.05)
+            return "0s";
+        if (dt <= 60)
+            return "-" + secRemaining.toFixed(0) + "s";
+        let mins = Math.floor(secRemaining / 60);
+        let remSecs = Math.round(secRemaining % 60);
+        return remSecs === 0 ? ("-" + mins + "m") : ("-" + mins + "m" + remSecs + "s");
+    }
+
     function updateHoverPoint() {
-        var pts = root.screenPoints;
-        if (!root.isHoveringPlot || !pts || pts.length === 0) {
+        var xs = root.screenXs;
+        var ys = root.screenYs;
+        var n = xs ? xs.length : 0;
+        if (!root.isHoveringPlot || n === 0) {
             root.hoveredPointIndex = -1;
             return ;
         }
-        var bestIdx = -1;
-        var bestDist = 999999;
-        for (let i = 0; i < pts.length; ++i) {
-            let d = Math.abs(pts[i].x - root.hoverMouseX);
-            if (d < bestDist) {
-                bestDist = d;
-                bestIdx = i;
-            }
+        // Binary search on sorted screenXs
+        var targetX = root.hoverMouseX;
+        var lo = 0;
+        var hi = n - 1;
+        while (lo < hi) {
+            let mid = (lo + hi) >> 1;
+            if (xs[mid] < targetX)
+                lo = mid + 1;
+            else
+                hi = mid;
         }
+        var bestIdx = lo;
+        if (lo > 0 && Math.abs(xs[lo - 1] - targetX) <= Math.abs(xs[lo] - targetX))
+            bestIdx = lo - 1;
+
         root.hoveredPointIndex = bestIdx;
-        if (bestIdx >= 0 && bestIdx < pts.length) {
-            root.hoverPtX = pts[bestIdx].x;
-            root.hoverPtY = pts[bestIdx].y;
-        }
+        root.hoverPtX = xs[bestIdx];
+        root.hoverPtY = ys[bestIdx];
     }
 
-    function requestAxesPaintIfNeeded() {
-        if (!root.hasData)
+    function rebuildPlotGeometry() {
+        var ts = root.tsData;
+        var vs = root.vsData;
+        var minVs = root.minVsData;
+        var maxVs = root.maxVsData;
+        var n = ts ? ts.length : 0;
+        var pW = root.plotW;
+        var pH = root.plotH;
+        if (!root.hasData || width <= 60 || height <= 50 || pW <= 20 || pH <= 20 || n === 0) {
+            root.screenXs = [];
+            root.screenYs = [];
+            root.hasValidPlotPoints = false;
+            linePolyline.path = [];
+            fillPolyline.path = [];
+            envelopePolyline.path = [];
+            root.updateHoverPoint();
             return ;
+        }
 
         var bounds = root.computedYBounds;
-        if (!bounds)
-            return ;
+        var minV = bounds.min;
+        var invRange = 1.0 / bounds.range;
+        var t_min = root.plotTMin;
+        var invDt = 1.0 / Math.max(0.001, root.plotTMax - t_min);
+        var pL = root.padL;
+        var pT = root.padT;
+        var drawEnv = n > 1 && root.rawPointCount > root.bucketCount && minVs && maxVs && minVs.length === n;
 
-        var dt = Math.max(0.001, root.plotTMax - root.plotTMin);
-        var xKey = (root.useCustomRange || root.dataSourceMode !== "live") ? (root.plotTMin.toFixed(2) + ":" + root.plotTMax.toFixed(2)) : dt.toFixed(2);
-        var tc = Kirigami.Theme.textColor;
-        var key = [Math.round(width), Math.round(height), bounds.min.toFixed(1), bounds.max.toFixed(1), root.showGrid ? 1 : 0, root.xAxisLabel, root.yAxisLabel, root.useCustomRange ? 1 : 0, root.dataSourceMode, xKey, tc.r.toFixed(2), tc.g.toFixed(2), tc.b.toFixed(2)].join("|");
-        if (key !== root._lastAxesKey) {
-            root._lastAxesKey = key;
-            if (!axesPaintTimer.running)
-                axesPaintTimer.start();
+        var sXs = new Array(n);
+        var sYs = new Array(n);
+        var linePts = new Array(n);
+        var envPts = drawEnv ? new Array(n * 2 + 1) : [];
 
+        for (let idx = 0; idx < n; ++idx) {
+            let normX = (ts[idx] - t_min) * invDt;
+            if (normX < 0)
+                normX = 0;
+            else if (normX > 1)
+                normX = 1;
+            let lx = normX * pW;
+
+            let normY = (vs[idx] - minV) * invRange;
+            if (normY < 0)
+                normY = 0;
+            else if (normY > 1)
+                normY = 1;
+            let ly = (1.0 - normY) * pH;
+
+            sXs[idx] = pL + lx;
+            sYs[idx] = pT + ly;
+            linePts[idx] = Qt.point(lx, ly);
+
+            if (drawEnv) {
+                let normMinY = (minVs[idx] - minV) * invRange;
+                if (normMinY < 0)
+                    normMinY = 0;
+                else if (normMinY > 1)
+                    normMinY = 1;
+                let normMaxY = (maxVs[idx] - minV) * invRange;
+                if (normMaxY < 0)
+                    normMaxY = 0;
+                else if (normMaxY > 1)
+                    normMaxY = 1;
+                envPts[idx] = Qt.point(lx, (1.0 - normMaxY) * pH);
+                envPts[(n * 2 - 1) - idx] = Qt.point(lx, (1.0 - normMinY) * pH);
+            }
         }
+
+        if (drawEnv)
+            envPts[n * 2] = envPts[0];
+
+        if (root.showFill && n > 1) {
+            var fillPts = new Array(n + 3);
+            fillPts[0] = Qt.point(linePts[0].x, pH);
+            for (let i = 0; i < n; ++i) {
+                fillPts[i + 1] = linePts[i];
+            }
+            fillPts[n + 1] = Qt.point(linePts[n - 1].x, pH);
+            fillPts[n + 2] = fillPts[0];
+            fillPolyline.path = fillPts;
+        } else {
+            fillPolyline.path = [];
+        }
+
+        envelopePolyline.path = envPts;
+        linePolyline.path = n > 1 ? linePts : [];
+        root.screenXs = sXs;
+        root.screenYs = sYs;
+        root.lastPtX = sXs[n - 1];
+        root.lastPtY = sYs[n - 1];
+        root.hasValidPlotPoints = true;
+        root.updateHoverPoint();
     }
 
     function requestPaint() {
         if (!root.hasData) {
-            axesPaintTimer.stop();
             paintTimer.stop();
-            root._lastAxesKey = "";
-            root.screenPoints = [];
+            root.screenXs = [];
+            root.screenYs = [];
+            root.hasValidPlotPoints = false;
+            linePolyline.path = [];
+            fillPolyline.path = [];
+            envelopePolyline.path = [];
             root.hoveredPointIndex = -1;
             return ;
         }
-        requestAxesPaintIfNeeded();
         if (!paintTimer.running)
             paintTimer.start();
-
     }
 
     Layout.fillWidth: true
     Layout.fillHeight: true
     Layout.minimumHeight: 110
-
-    Timer {
-        id: axesPaintTimer
-
-        interval: 0
-        repeat: false
-        onTriggered: {
-            if (root.hasData)
-                axesCanvas.requestPaint();
-
-        }
+    onWidthChanged: {
+        if (root.hasData && width > 0 && height > 0)
+            root.requestPaint();
+    }
+    onHeightChanged: {
+        if (root.hasData && width > 0 && height > 0)
+            root.requestPaint();
     }
 
     Timer {
@@ -148,274 +250,219 @@ Item {
 
         interval: 0
         repeat: false
-        onTriggered: {
-            if (root.hasData)
-                canvas.requestPaint();
-
-        }
+        onTriggered: root.rebuildPlotGeometry()
     }
 
-    // static layer: grid lines, axis ticks, and labels (repaints only on resize, Y-scale, or range changes)
-    Canvas {
-        id: axesCanvas
+    // 1. Static/semi-static axes & grid layer (pure Scene Graph Rectangle and Text nodes)
+    Item {
+        id: axesLayer
 
         anchors.fill: parent
-        visible: root.hasData
-        onWidthChanged: {
-            if (root.hasData && width > 0 && height > 0)
-                root.requestPaint();
+        visible: root.hasData && root.width > 60 && root.height > 50 && root.plotW > 20 && root.plotH > 20
 
+        // Horizontal grid lines (5 lines: 0%, 25%, 50%, 75%, 100%)
+        Repeater {
+            model: root.showGrid ? 5 : 0
+
+            Rectangle {
+                required property int index
+
+                x: root.padL
+                y: Math.round(root.padT + (root.plotH * (index / 4)))
+                width: root.plotW
+                height: 1
+                color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.1)
+            }
         }
-        onHeightChanged: {
-            if (root.hasData && width > 0 && height > 0)
-                root.requestPaint();
 
+        // Vertical grid lines (3 interior lines: 25%, 50%, 75%)
+        Repeater {
+            model: root.showGrid ? 3 : 0
+
+            Rectangle {
+                required property int index
+
+                x: Math.round(root.padL + (root.plotW * ((index + 1) / 4)))
+                y: root.padT
+                width: 1
+                height: root.plotH
+                color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.1)
+            }
         }
-        onPaint: {
-            var ctx = getContext("2d");
-            ctx.clearRect(0, 0, width, height);
-            if (!root.hasData || width <= 60 || height <= 50)
-                return ;
 
-            var padL = root.padL;
-            var padT = root.padT;
-            var plotW = root.plotW;
-            var plotH = root.plotH;
-            if (plotW <= 20 || plotH <= 20)
-                return ;
+        // Y-axis top tick label (max)
+        Text {
+            x: root.padL - 6 - implicitWidth
+            y: root.padT
+            text: root.computedYBounds.max.toFixed(1)
+            font.family: "monospace"
+            font.pixelSize: 10
+            color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.75)
+        }
 
-            var bounds = root.computedYBounds;
-            if (!bounds)
-                return ;
+        // Y-axis middle tick label (mid)
+        Text {
+            visible: root.plotH >= 65
+            x: root.padL - 6 - implicitWidth
+            y: root.padT + (root.plotH * 0.5) - (implicitHeight * 0.5)
+            text: ((root.computedYBounds.min + root.computedYBounds.max) * 0.5).toFixed(1)
+            font.family: "monospace"
+            font.pixelSize: 10
+            color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.75)
+        }
 
-            var minV = bounds.min;
-            var maxV = bounds.max;
-            var textColor = Kirigami.Theme.textColor;
-            var disabledColor = Kirigami.Theme.disabledTextColor;
-            // 1. horizontal & vertical grid lines
-            if (root.showGrid) {
-                ctx.strokeStyle = Qt.rgba(textColor.r, textColor.g, textColor.b, 0.1);
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                for (let g = 0; g <= 4; ++g) {
-                    let gy = padT + (plotH * (g / 4));
-                    ctx.moveTo(padL, gy);
-                    ctx.lineTo(padL + plotW, gy);
+        // Y-axis bottom tick label (min)
+        Text {
+            x: root.padL - 6 - implicitWidth
+            y: root.padT + root.plotH - implicitHeight
+            text: root.computedYBounds.min.toFixed(1)
+            font.family: "monospace"
+            font.pixelSize: 10
+            color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.75)
+        }
+
+        // Rotated Y-axis title
+        Text {
+            visible: root.yAxisLabel !== ""
+            x: 9 - (implicitWidth * 0.5)
+            y: root.padT + (root.plotH * 0.5) - (implicitHeight * 0.5)
+            text: root.yAxisLabel
+            rotation: -90
+            font.family: "sans-serif"
+            font.pixelSize: 9
+            font.bold: true
+            color: Qt.rgba(Kirigami.Theme.disabledTextColor.r, Kirigami.Theme.disabledTextColor.g, Kirigami.Theme.disabledTextColor.b, 0.85)
+        }
+
+        // Bottom X-axis baseline
+        Rectangle {
+            x: root.padL
+            y: root.padT + root.plotH
+            width: root.plotW
+            height: 1
+            color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.25)
+        }
+
+        // X-axis tick marks & labels
+        Repeater {
+            model: root.xTickFractions
+
+            Item {
+                required property real modelData
+                readonly property real tickX: root.padL + (modelData * root.plotW)
+
+                Rectangle {
+                    x: Math.round(parent.tickX)
+                    y: root.padT + root.plotH
+                    width: 1
+                    height: 3
+                    color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.35)
                 }
-                for (let vg = 1; vg < 4; ++vg) {
-                    let vx = padL + (plotW * (vg / 4));
-                    ctx.moveTo(vx, padT);
-                    ctx.lineTo(vx, padT + plotH);
+
+                Text {
+                    x: parent.modelData === 0 ? parent.tickX : (parent.modelData === 1 ? parent.tickX - implicitWidth : parent.tickX - (implicitWidth * 0.5))
+                    y: root.padT + root.plotH + 4
+                    text: root.formatXTickLabel(parent.modelData)
+                    font.family: "monospace"
+                    font.pixelSize: 9
+                    color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.78)
                 }
-                ctx.stroke();
             }
-            // 2. y-axis tick labels and rotated y-axis label
-            ctx.fillStyle = Qt.rgba(textColor.r, textColor.g, textColor.b, 0.75);
-            ctx.font = "10px monospace";
-            ctx.textAlign = "right";
-            ctx.textBaseline = "top";
-            ctx.fillText(maxV.toFixed(1), padL - 6, padT);
-            if (plotH >= 65) {
-                ctx.textBaseline = "middle";
-                ctx.fillText(((minV + maxV) / 2).toFixed(1), padL - 6, padT + plotH * 0.5);
+        }
+
+        // X-axis title
+        Text {
+            visible: root.xAxisLabel !== ""
+            x: root.padL + (root.plotW * 0.5) - (implicitWidth * 0.5)
+            y: root.height - implicitHeight - 1
+            text: root.xAxisLabel
+            font.family: "sans-serif"
+            font.pixelSize: 9
+            font.bold: true
+            color: Qt.rgba(Kirigami.Theme.disabledTextColor.r, Kirigami.Theme.disabledTextColor.g, Kirigami.Theme.disabledTextColor.b, 0.85)
+        }
+    }
+
+    // 2. Dynamic GPU curve layer: min/max envelope, gradient area fill, and polyline stroke
+    Shape {
+        id: plotShape
+
+        x: root.padL
+        y: root.padT
+        width: root.plotW
+        height: root.plotH
+        clip: true
+        visible: root.hasData && root.hasValidPlotPoints
+        preferredRendererType: Shape.CurveRenderer
+
+        // Bucket min/max envelope band
+        ShapePath {
+            strokeColor: "transparent"
+            strokeWidth: 0
+            fillColor: Qt.rgba(root.resolvedColor.r, root.resolvedColor.g, root.resolvedColor.b, 0.14)
+
+            PathPolyline {
+                id: envelopePolyline
             }
-            ctx.textBaseline = "bottom";
-            ctx.fillText(minV.toFixed(1), padL - 6, padT + plotH);
-            if (root.yAxisLabel !== "") {
-                ctx.save();
-                ctx.translate(9, padT + plotH * 0.5);
-                ctx.rotate(-Math.PI / 2);
-                ctx.textAlign = "center";
-                ctx.textBaseline = "top";
-                ctx.font = "bold 9px sans-serif";
-                ctx.fillStyle = Qt.rgba(disabledColor.r, disabledColor.g, disabledColor.b, 0.85);
-                ctx.fillText(root.yAxisLabel, 0, 0);
-                ctx.restore();
-            }
-            // 3. horizontal axis line & ticks (bottom)
-            var t_min = root.plotTMin;
-            var t_max = root.plotTMax;
-            var dt = Math.max(0.001, t_max - t_min);
-            ctx.strokeStyle = Qt.rgba(textColor.r, textColor.g, textColor.b, 0.25);
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(padL, padT + plotH);
-            ctx.lineTo(padL + plotW, padT + plotH);
-            ctx.stroke();
-            ctx.fillStyle = Qt.rgba(textColor.r, textColor.g, textColor.b, 0.78);
-            ctx.font = "9px monospace";
-            ctx.textBaseline = "top";
-            var fractions = plotW < 180 ? [0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1];
-            for (let fIdx = 0; fIdx < fractions.length; ++fIdx) {
-                let frac = fractions[fIdx];
-                let tx = padL + frac * plotW;
-                ctx.strokeStyle = Qt.rgba(textColor.r, textColor.g, textColor.b, 0.35);
-                ctx.beginPath();
-                ctx.moveTo(tx, padT + plotH);
-                ctx.lineTo(tx, padT + plotH + 3);
-                ctx.stroke();
-                let labelText = "";
-                if (root.useCustomRange || root.dataSourceMode !== "live") {
-                    let absT = t_min + frac * dt;
-                    labelText = absT.toFixed(1) + "s";
-                } else {
-                    let secRemaining = dt * (1 - frac);
-                    if (frac === 1 || secRemaining < 0.05) {
-                        labelText = "0s";
-                    } else if (dt <= 60) {
-                        labelText = "-" + secRemaining.toFixed(0) + "s";
-                    } else {
-                        let mins = Math.floor(secRemaining / 60);
-                        let remSecs = Math.round(secRemaining % 60);
-                        labelText = remSecs === 0 ? ("-" + mins + "m") : ("-" + mins + "m" + remSecs + "s");
-                    }
+        }
+
+        // Area linear gradient fill
+        ShapePath {
+            strokeColor: "transparent"
+            strokeWidth: 0
+            fillGradient: LinearGradient {
+                x1: 0
+                y1: 0
+                x2: 0
+                y2: root.plotH
+
+                GradientStop {
+                    position: 0
+                    color: Qt.rgba(root.resolvedColor.r, root.resolvedColor.g, root.resolvedColor.b, 0.24)
                 }
-                if (frac === 0)
-                    ctx.textAlign = "left";
-                else if (frac === 1)
-                    ctx.textAlign = "right";
-                else
-                    ctx.textAlign = "center";
-                ctx.fillText(labelText, tx, padT + plotH + 4);
+
+                GradientStop {
+                    position: 1
+                    color: Qt.rgba(root.resolvedColor.r, root.resolvedColor.g, root.resolvedColor.b, 0.0)
+                }
             }
-            if (root.xAxisLabel !== "") {
-                ctx.textAlign = "center";
-                ctx.textBaseline = "bottom";
-                ctx.font = "bold 9px sans-serif";
-                ctx.fillStyle = Qt.rgba(disabledColor.r, disabledColor.g, disabledColor.b, 0.85);
-                ctx.fillText(root.xAxisLabel, padL + plotW * 0.5, height - 1);
+
+            PathPolyline {
+                id: fillPolyline
+            }
+        }
+
+        // Main telemetry polyline stroke
+        ShapePath {
+            strokeColor: root.resolvedColor
+            strokeWidth: root.lineStroke
+            fillColor: "transparent"
+            capStyle: ShapePath.RoundCap
+            joinStyle: ShapePath.RoundJoin
+
+            PathPolyline {
+                id: linePolyline
             }
         }
     }
 
-    // dynamic data layer: draws only the min/max envelope, gradient fill, polyline, and latest dot
-    Canvas {
-        id: canvas
-
-        anchors.fill: parent
-        visible: root.hasData
-        onPaint: {
-            var ctx = getContext("2d");
-            ctx.clearRect(0, 0, width, height);
-            var n = root.history.length;
-            if (width <= 60 || height <= 50 || n === 0) {
-                root.screenPoints = [];
-                root.updateHoverPoint();
-                return ;
-            }
-            var padL = root.padL;
-            var padT = root.padT;
-            var plotW = root.plotW;
-            var plotH = root.plotH;
-            if (plotW <= 20 || plotH <= 20)
-                return ;
-
-            var bounds = root.computedYBounds;
-            if (!bounds)
-                return ;
-
-            var minV = bounds.min;
-            var range = bounds.range;
-            var accent = root.resolvedColor;
-            var t_min = root.plotTMin;
-            var dt = Math.max(0.001, root.plotTMax - t_min);
-            // map bucketed points to screen coordinates
-            var pts = [];
-            for (let idx = 0; idx < n; ++idx) {
-                let pt = root.history[idx];
-                let normX = (pt.t - t_min) / dt;
-                let px = padL + Math.max(0, Math.min(1, normX)) * plotW;
-                let normY = (pt.v - minV) / range;
-                let py = padT + (1 - Math.max(0, Math.min(1, normY))) * plotH;
-                let minPy = py;
-                let maxPy = py;
-                if (pt.minV !== undefined && pt.maxV !== undefined && pt.count > 1) {
-                    let normMinY = (pt.minV - minV) / range;
-                    let normMaxY = (pt.maxV - minV) / range;
-                    minPy = padT + (1 - Math.max(0, Math.min(1, normMinY))) * plotH;
-                    maxPy = padT + (1 - Math.max(0, Math.min(1, normMaxY))) * plotH;
-                }
-                pts.push({
-                    "x": px,
-                    "y": py,
-                    "minY": minPy,
-                    "maxY": maxPy,
-                    "t": pt.t,
-                    "v": pt.v,
-                    "count": pt.count ?? 1
-                });
-            }
-            root.screenPoints = pts;
-            root.updateHoverPoint();
-            if (pts.length === 0)
-                return ;
-
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(padL, padT, plotW, plotH);
-            ctx.clip();
-            // 7. bucket min/max envelope band (when downsampling large datasets)
-            var rCol = Math.round(accent.r * 255);
-            var gCol = Math.round(accent.g * 255);
-            var bCol = Math.round(accent.b * 255);
-            if (pts.length > 1 && root.rawPointCount > root.bucketCount) {
-                ctx.beginPath();
-                for (let e1 = 0; e1 < pts.length; ++e1) {
-                    if (e1 === 0)
-                        ctx.moveTo(pts[e1].x, pts[e1].maxY);
-                    else
-                        ctx.lineTo(pts[e1].x, pts[e1].maxY);
-                }
-                for (let e2 = pts.length - 1; e2 >= 0; --e2) {
-                    ctx.lineTo(pts[e2].x, pts[e2].minY);
-                }
-                ctx.closePath();
-                ctx.fillStyle = "rgba(" + rCol + "," + gCol + "," + bCol + ", 0.14)";
-                ctx.fill();
-            }
-            // 8. area gradient fill
-            if (root.showFill && pts.length > 1) {
-                let grad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
-                grad.addColorStop(0, "rgba(" + rCol + "," + gCol + "," + bCol + ", 0.24)");
-                grad.addColorStop(1, "rgba(" + rCol + "," + gCol + "," + bCol + ", 0.0)");
-                ctx.beginPath();
-                ctx.moveTo(pts[0].x, padT + plotH);
-                for (let p = 0; p < pts.length; ++p) {
-                    ctx.lineTo(pts[p].x, pts[p].y);
-                }
-                ctx.lineTo(pts[pts.length - 1].x, padT + plotH);
-                ctx.closePath();
-                ctx.fillStyle = grad;
-                ctx.fill();
-            }
-            // 9. line stroke
-            ctx.beginPath();
-            ctx.strokeStyle = accent;
-            ctx.lineWidth = root.lineStroke;
-            for (let s = 0; s < pts.length; ++s) {
-                if (s === 0)
-                    ctx.moveTo(pts[s].x, pts[s].y);
-                else
-                    ctx.lineTo(pts[s].x, pts[s].y);
-            }
-            ctx.stroke();
-            // 10. dot on newest point (end of graph)
-            var last = pts[pts.length - 1];
-            ctx.beginPath();
-            ctx.arc(last.x, last.y, 2.8, 0, 2 * Math.PI);
-            ctx.fillStyle = accent;
-            ctx.fill();
-            // end rendering loop
-            ctx.restore();
-        }
+    // Dot on newest point (end of graph)
+    Rectangle {
+        visible: root.hasData && root.hasValidPlotPoints
+        x: root.lastPtX - 2.8
+        y: root.lastPtY - 2.8
+        width: 5.6
+        height: 5.6
+        radius: 2.8
+        color: root.resolvedColor
     }
 
-    // crosshair overlay renders separate from the rest of the canvas
+    // crosshair overlay renders separate from the rest of the plot
     Item {
         id: crosshairOverlay
 
         anchors.fill: parent
-        visible: root.isHoveringPlot && root.hoveredPointIndex >= 0 && root.hoveredPointIndex < root.screenPoints.length
+        visible: root.isHoveringPlot && root.hoveredPointIndex >= 0 && root.hoveredPointIndex < root.screenXs.length
 
         Rectangle {
             x: Math.round(root.hoverPtX)
@@ -443,7 +490,6 @@ Item {
             border.color: "#ffffff"
             border.width: 1.5
         }
-
     }
 
     // centered "no data" label styled like addGraphPlaceholderCard when channel has no points
@@ -466,7 +512,6 @@ Item {
             horizontalAlignment: Text.AlignHCenter
             Layout.alignment: Qt.AlignHCenter
         }
-
     }
 
     // hover MouseArea for interactive crosshair inspection
@@ -494,7 +539,7 @@ Item {
         readonly property real plotLeftOffset: root.yAxisLabel !== "" ? 62 : 48
         readonly property real maxAvailableWidth: Math.max(60, parent.width - plotLeftOffset - 18)
 
-        visible: root.isHoveringPlot && root.hoveredPointIndex >= 0 && root.hoveredPointIndex < root.history.length
+        visible: root.isHoveringPlot && root.hoveredPointIndex >= 0 && root.hoveredPointIndex < root.tsData.length
         x: {
             // flip pill to left side of plot when cursor approaches right half so it never obscures the point
             var preferredX = root.hoverMouseX > (parent.width * 0.55) ? plotLeftOffset : (parent.width - width - 16);
@@ -519,14 +564,13 @@ Item {
             font.family: "monospace"
             font.pointSize: Kirigami.Theme.smallFont.pointSize
             text: {
-                if (root.hoveredPointIndex < 0 || root.hoveredPointIndex >= root.history.length)
+                if (root.hoveredPointIndex < 0 || root.hoveredPointIndex >= root.tsData.length)
                     return "";
 
-                var pt = root.history[root.hoveredPointIndex];
-                return "t=" + Number(pt.t).toFixed(2) + "s | " + Number(pt.v).toFixed(2) + (root.yAxisLabel !== "" ? " " + root.yAxisLabel : "");
+                var tVal = root.tsData[root.hoveredPointIndex];
+                var vVal = root.vsData[root.hoveredPointIndex];
+                return "t=" + Number(tVal).toFixed(2) + "s | " + Number(vVal).toFixed(2) + (root.yAxisLabel !== "" ? " " + root.yAxisLabel : "");
             }
         }
-
     }
-
 }

@@ -119,10 +119,10 @@ if "kirigami" not in collected_kde_mods:
         f"CRITICAL: 'org/kde/kirigami' was not found in any QML search path: {qml_search_roots}"
     )
 
-# Collect QtWebSockets QML module
+# Collect QtWebSockets and QtQuick/Shapes QML modules
 collected_extra_mods = set()
 for root in qml_search_roots:
-    for mod_name in ["QtWebSockets"]:
+    for mod_name in ["QtWebSockets", "QtQuick/Shapes"]:
         cand_mod = root / mod_name
         if cand_mod.exists() and mod_name not in collected_extra_mods:
             collected_extra_mods.add(mod_name)
@@ -159,7 +159,7 @@ def add_binary_once(src_path: Path, dest_dir: str = "."):
 if sys.platform.startswith("linux"):
     for l_dir in [Path("/usr/lib/x86_64-linux-gnu"), Path("/usr/lib"), Path("/usr/lib64")]:
         if l_dir.exists():
-            for pattern in ["*Kirigami*.so*", "*KF6*.so*", "*Breeze*.so*", "*qqc2*.so*", "*WebSockets*.so*"]:
+            for pattern in ["*Kirigami*.so*", "*KF6*.so*", "*Breeze*.so*", "*qqc2*.so*", "*WebSockets*.so*", "*QuickShapes*.so*"]:
                 for match in l_dir.glob(pattern):
                     add_binary_once(match, ".")
             for plugin in l_dir.rglob("*KIconEnginePlugin*.so*"):
@@ -170,13 +170,14 @@ if sys.platform.startswith("linux"):
 
 # Windows & macOS Craft shared libraries, KIconEnginePlugin, and Breeze Icons
 if sys.platform in ("win32", "darwin") and craft_root.exists():
-    # 1. Collect KF6, Kirigami, Breeze, WebSockets, and gettext/iconv runtime libraries
+    # 1. Collect KF6, Kirigami, Breeze, WebSockets, QuickShapes, and gettext/iconv runtime libraries
     lib_patterns = [
         "*KF6*",
         "*Kirigami*",
         "*Breeze*",
         "*qqc2*",
         "*WebSockets*",
+        "*QuickShapes*",
         "*intl*",
         "*iconv*",
         "*pcre2*",

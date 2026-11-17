@@ -236,13 +236,34 @@ ColumnLayout {
     }
 
     function scheduleBatchRefresh() {
+        if (!graphsRoot.visible)
+            return ;
+
         if (!batchRefreshTimer.running)
             batchRefreshTimer.start();
 
     }
 
+    function refreshStaleViewportCards() {
+        if (!graphsRoot.visible || graphsFlick.height <= 0)
+            return ;
+
+        var viewTop = graphsFlick.contentY - 60;
+        var viewBottom = graphsFlick.contentY + graphsFlick.height + 60;
+        for (let i = 0; i < cardsRepeater.count; ++i) {
+            let card = cardsRepeater.itemAt(i) as GraphCard;
+            if (!card || !card.channelKey || !card._staleWhileOffscreen)
+                continue;
+
+            if (card.height <= 0 || (card.y + card.height >= viewTop && card.y <= viewBottom)) {
+                scheduleBatchRefresh();
+                return ;
+            }
+        }
+    }
+
     function refreshAllCardsBatched() {
-        if (typeof backend === "undefined" || !backend || typeof backend.get_batch_channel_data !== "function")
+        if (!graphsRoot.visible || typeof backend === "undefined" || !backend || typeof backend.get_batch_channel_data !== "function")
             return ;
 
         var requests = [];
@@ -250,11 +271,21 @@ ColumnLayout {
         var useCustom = graphsRoot.dataSourceMode !== "live" && graphsRoot.customSpanActive;
         var tStartArg = useCustom ? graphsRoot.rangeStart : -graphsRoot.windowSeconds;
         var tEndArg = useCustom ? graphsRoot.rangeEnd : -1;
+        var checkViewport = graphsFlick.height > 0;
+        var viewTop = graphsFlick.contentY - 60;
+        var viewBottom = graphsFlick.contentY + graphsFlick.height + 60;
         for (let i = 0; i < cardsRepeater.count; ++i) {
             let card = cardsRepeater.itemAt(i) as GraphCard;
             if (!card || !card.channelKey)
                 continue;
 
+            if (checkViewport && card.height > 0) {
+                if (card.y + card.height < viewTop || card.y > viewBottom) {
+                    card._staleWhileOffscreen = true;
+                    continue;
+                }
+            }
+            card._staleWhileOffscreen = false;
             cards.push(card);
             requests.push({
                 "index": i,
@@ -286,6 +317,11 @@ ColumnLayout {
         loadDefaultGraphs();
         syncLoadedMeta();
         scheduleBatchRefresh();
+    }
+    onVisibleChanged: {
+        if (graphsRoot.visible)
+            scheduleBatchRefresh();
+
     }
     onEditLayoutModeChanged: {
         if (!graphsRoot.editLayoutMode && graphsModel.count > 0)
@@ -378,6 +414,8 @@ ColumnLayout {
             contentHeight: graphsGrid.implicitHeight
             boundsBehavior: Flickable.StopAtBounds
             Controls.ScrollBar.vertical: graphsScrollBar.scrollBar
+            onContentYChanged: graphsRoot.refreshStaleViewportCards()
+            onHeightChanged: graphsRoot.refreshStaleViewportCards()
 
             GridLayout {
                 id: graphsGrid
@@ -626,6 +664,7 @@ ColumnLayout {
                 graphsModel.append(graphsRoot.normalizeCardConfig(cfg, graphsRoot.placeholderRowHeight, false));
                 graphsRoot.syncRowHeights(graphsModel.count - 1, graphsRoot.placeholderRowHeight);
                 graphsRoot.persistGraphsConfig();
+                graphsRoot.scheduleBatchRefresh();
                 return ;
             }
             if (idx < 0 || idx >= graphsModel.count)
@@ -635,6 +674,7 @@ ColumnLayout {
             graphsModel.set(idx, graphsRoot.normalizeCardConfig(cfg, existingHeight, false));
             graphsRoot.syncRowHeights(idx, existingHeight);
             graphsRoot.persistGraphsConfig();
+            graphsRoot.scheduleBatchRefresh();
         }
     }
 
