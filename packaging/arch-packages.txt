@@ -1,0 +1,28 @@
+# Arch Linux packages for Flow-Control-System-Client AppImage CI build
+# Runtime: Python, PySide6, required Qt6 modules, KDE Kirigami, Multimedia (RTSP/FFmpeg)
+python
+python-pip
+pyside6
+kirigami
+qqc2-desktop-style
+kiconthemes
+kcoreaddons
+ki18n
+qt6-base
+qt6-declarative
+qt6-svg
+qt6-wayland
+qt6-websockets
+qt6-multimedia
+qt6-multimedia-ffmpeg
+qqc2-desktop-style
+qt6-shadertools
+
+# Packaging & quick-sharun dependencies
+git
+patchelf
+binutils
+file
+curl
+wget
+squashfs-tools

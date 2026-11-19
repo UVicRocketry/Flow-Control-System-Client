@@ -8,3 +8,4 @@ Icon=flow-control
 Categories=Utility;Engineering;Development;
 Terminal=false
 StartupNotify=true
+StartupWMClass=com.uvr.fcs-client

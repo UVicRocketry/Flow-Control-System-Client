@@ -6,152 +6,193 @@ on:
   pull_request:
     branches: [master, main]
   workflow_dispatch:
+    inputs:
+      rebuild_linux_image:
+        description: 'Force rebuild of the cached Arch Linux builder image in GHCR'
+        type: boolean
+        default: false
 
 jobs:
   # ============================================================================
-  # 1. LINUX BUILD (AppImage)
+  # 1. ARCH LINUX BUILDER IMAGE (Pre-baked & cached in GHCR)
   # ============================================================================
-  build-linux:
-    name: Linux AppImage (x86_64)
+  ensure-linux-image:
+    name: Ensure Arch Builder Image (GHCR)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.resolve.outputs.image }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        id: setup-python
-        with:
-          python-version: '3.14'
-
-      - name: Cache KDE Neon APT .deb archives
-        uses: actions/cache@v5
-        id: apt-cache
-        with:
-          path: /tmp/apt-cache
-          key: linux-apt-neon-kf6-v4
-
-      - name: Add KDE Neon repository & install KF6/Kirigami
+      - name: Resolve GHCR image reference
+        id: resolve
+        shell: bash
         run: |
-          sudo rm -f /etc/apt/apt.conf.d/docker-clean
+          OWNER_LOWER=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_REPO="ghcr.io/${OWNER_LOWER}/flow-control-linux-builder"
+          DEPS_HASH="${{ hashFiles('packaging/Dockerfile.arch', 'packaging/arch-packages.txt', 'requirements.txt') }}"
+          TAG="deps-${DEPS_HASH:0:16}"
+          IMAGE="${IMAGE_REPO}:${TAG}"
+          echo "image_repo=${IMAGE_REPO}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
 
-          mkdir -p /tmp/apt-cache/partial
-          sudo chown -R _apt:root /tmp/apt-cache/partial
-          sudo chmod 700 /tmp/apt-cache/partial
-          echo 'Dir::Cache::archives "/tmp/apt-cache";' | sudo tee /etc/apt/apt.conf.d/99custom-cache.conf
+      - name: Log in to GitHub Container Registry
+        shell: bash
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-          sudo mkdir -p /etc/apt/keyrings
-          NEON_OK=0
-          if curl -fsSL --retry 5 --retry-delay 5 https://archive.neon.kde.org/public.key | sudo gpg --dearmor --yes -o /etc/apt/keyrings/neon-archive-keyring.gpg; then
-            echo "deb [signed-by=/etc/apt/keyrings/neon-archive-keyring.gpg] https://archive.neon.kde.org/user noble main" | sudo tee /etc/apt/sources.list.d/neon.list
-            for attempt in 1 2 3 4; do
-              if sudo apt-get -o Acquire::Retries=3 update; then
-                NEON_OK=1
-                break
-              fi
-              echo "apt-get update attempt $attempt failed (Neon mirror issue); retrying in 15s..."
-              sleep 15
-            done
-          fi
-
-          if [ "$NEON_OK" -eq 1 ]; then
-            sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
-              libgl1-mesa-dev libxkbcommon-x11-0 \
-              libfontconfig1 libdbus-1-3 \
-              kf6-kirigami \
-              kf6-qqc2-desktop-style \
-              kf6-kiconthemes \
-              kf6-kcoreaddons \
-              kf6-ki18n \
-              qml6-module-qtquick-controls \
-              qml6-module-qtquick-layouts \
-              qml6-module-qtquick-templates \
-              qml6-module-qtquick-shapes
-          elif compgen -G "/tmp/apt-cache/*.deb" > /dev/null; then
-            echo "KDE Neon mirror unreachable (502); falling back to cached .deb archives..."
-            sudo rm -f /etc/apt/sources.list.d/neon.list
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends /tmp/apt-cache/*.deb
+      - name: Check whether builder image exists in GHCR
+        id: check
+        shell: bash
+        run: |
+          if [ "${{ inputs.rebuild_linux_image }}" = "true" ]; then
+            echo "Manual rebuild requested; building image."
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
+          elif docker manifest inspect "${{ steps.resolve.outputs.image }}" >/dev/null 2>&1; then
+            echo "Found cached builder image: ${{ steps.resolve.outputs.image }}"
+            echo "needs_build=false" >> "$GITHUB_OUTPUT"
           else
-            echo "ERROR: KDE Neon mirror unreachable and no cached .deb packages available."
-            exit 1
+            echo "Builder image not found in GHCR; building ${{ steps.resolve.outputs.image }}."
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
           fi
 
-          sudo rm -rf /tmp/apt-cache/partial /tmp/apt-cache/lock
-          sudo chown -R $USER:$USER /tmp/apt-cache
-
-      - name: Detect installed KDE Neon Qt6 version
-        id: qt-ver
+      - name: Build and push Arch Linux builder image
+        if: steps.check.outputs.needs_build == 'true'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RAW_VER=$(dpkg-query -W -f='${Version}\n' libqt6core6t64 2>/dev/null || dpkg-query -W -f='${Version}\n' libqt6core6)
-          QT_VER=$(echo "$RAW_VER" | sed 's/^[0-9]*://' | sed -n 's/^\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
-          echo "Detected Qt6 version: $QT_VER"
-          echo "version=$QT_VER" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Python installed site-packages & appimagetool
-        uses: actions/cache@v5
-        id: linux-py-cache
-        with:
-          path: |
-            /opt/hostedtoolcache/Python/3.14.*
-            ~/.cache/appimagetool
-          key: linux-py314-qt${{ steps.qt-ver.outputs.version }}-v3-${{ hashFiles('requirements.txt', 'requirements-build.txt') }}
-
-      - name: Install Python dependencies (Skipped on Cache Hit)
-        if: steps.linux-py-cache.outputs.cache-hit != 'true'
-        run: |
-          python -m pip install --upgrade pip
-          QT_VER="${{ steps.qt-ver.outputs.version }}"
-          if [ -n "$QT_VER" ]; then
-            pip install "PySide6-Essentials==${QT_VER}" "PySide6-Addons==${QT_VER}" -r requirements-build.txt || \
-              pip install -r requirements.txt -r requirements-build.txt
-          else
-            pip install -r requirements.txt -r requirements-build.txt
+          set -euo pipefail
+          EXTRA_TAG=()
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            EXTRA_TAG=(-t "${{ steps.resolve.outputs.image_repo }}:latest")
           fi
+          docker buildx build \
+            --push \
+            --provenance=false \
+            --file packaging/Dockerfile.arch \
+            --secret id=github_token,env=GITHUB_TOKEN \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            -t "${{ steps.resolve.outputs.image }}" \
+            "${EXTRA_TAG[@]}" \
+            .
 
-      - name: Compile Application with PyInstaller
+  # ============================================================================
+  # 2. LINUX BUILD (Pre-baked Arch Linux + Anylinux sharun AppImage)
+  # ============================================================================
+  build-linux:
+    name: Linux AppImage (x86_64)
+    needs: [ensure-linux-image]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.ensure-linux-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Flow Control into /usr
+        shell: bash
         run: |
-          pyinstaller --clean --noconfirm packaging/FlowControl.spec
+          set -euo pipefail
+          install -d /usr/share/FlowControl/contents/config/graphs
+          cp -a contents/code contents/qml contents/icons /usr/share/FlowControl/contents/
+          find /usr/share/FlowControl/contents -type d -name '__pycache__' -exec rm -rf {} +
+          find /usr/share/FlowControl/contents -type f -name '*.log' -delete
 
-      - name: Assemble AppDir and Package AppImage
+          cp -a contents/config/config.json /usr/share/FlowControl/contents/config/config.json
+          cp -a contents/config/graphs/graphs.json /usr/share/FlowControl/contents/config/graphs/graphs.json
+
+          install -Dm644 packaging/icon.png /usr/share/icons/hicolor/256x256/apps/flow-control.png
+          install -Dm644 contents/qml/img/icon.svg /usr/share/icons/hicolor/scalable/apps/flow-control.svg
+          install -Dm644 packaging/flow-control.desktop /usr/share/applications/flow-control.desktop
+
+          install -d /usr/bin
+          cat <<'EOF' > /usr/bin/FlowControl
+          #!/bin/sh
+          set -e
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export FLOW_CONTROL_USE_USER_CONFIG=1
+          export QT_QUICK_CONTROLS_STYLE="${QT_QUICK_CONTROLS_STYLE:-org.kde.desktop}"
+          export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland;xcb}"
+          exec python3 "${HERE}/../share/FlowControl/contents/code/main.py" "$@"
+          EOF
+          chmod 755 /usr/bin/FlowControl
+
+      - name: Bundle & Package AppImage with quick-sharun
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p build/AppDir/usr/bin
-          mkdir -p build/AppDir/usr/share/applications
-          mkdir -p build/AppDir/usr/share/icons/hicolor/256x256/apps
-          mkdir -p build/AppDir/usr/share/icons/hicolor/scalable/apps
+          set -euo pipefail
+          shopt -s nullglob
 
-          # Use `cp -a` (archive mode) instead of `cp -r` to preserve symlinks!
-          cp -a dist/FlowControl/. build/AppDir/usr/bin/
-          cp packaging/AppRun build/AppDir/AppRun
-          chmod +x build/AppDir/AppRun
-
-          # Exclude libraries on AppImage excludelist to eliminate host fontconfig XML attribute errors
-          find build/AppDir -name "libfontconfig.so*" -delete || true
-          find build/AppDir -name "libfreetype.so*" -delete || true
-
-          # Strip debug symbols from bundled shared libraries (e.g. libpython3.14.so.1.0 is ~31MB unstripped)
-          find build/AppDir/usr/bin/_internal -type f -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true
-
-          # Copy desktop entry and icons
-          cp packaging/flow-control.desktop build/AppDir/flow-control.desktop
-          cp packaging/flow-control.desktop build/AppDir/usr/share/applications/flow-control.desktop
-          cp packaging/icon.png build/AppDir/flow-control.png
-          cp packaging/icon.png build/AppDir/usr/share/icons/hicolor/256x256/apps/flow-control.png
-          cp contents/qml/img/icon.svg build/AppDir/flow-control.svg
-          cp contents/qml/img/icon.svg build/AppDir/usr/share/icons/hicolor/scalable/apps/flow-control.svg
-
-          # Use cached appimagetool if available, otherwise download once
-          mkdir -p ~/.cache/appimagetool
-          if [ ! -f ~/.cache/appimagetool/appimagetool.AppImage ]; then
-            curl -fsSL "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -o ~/.cache/appimagetool/appimagetool.AppImage
-            chmod +x ~/.cache/appimagetool/appimagetool.AppImage
-          fi
-          ~/.cache/appimagetool/appimagetool.AppImage --appimage-extract
-
-          # Package into final AppImage
           export ARCH=x86_64
-          ./squashfs-root/AppRun --no-appstream build/AppDir dist/FlowControl-Linux-x86_64.AppImage
-          chmod +x dist/FlowControl-Linux-x86_64.AppImage
+          export APPDIR="$PWD/build/AppDir"
+          export OUTPATH="$PWD/dist"
+          export OUTNAME="FlowControl-Linux-x86_64.AppImage"
+
+          mkdir -p "$APPDIR/share" "$OUTPATH"
+          cp -a /usr/share/FlowControl "$APPDIR/share/FlowControl"
+
+          if [ -d /opt/sharun-tools/cache ]; then
+            cp -af /opt/sharun-tools/cache/* /tmp/
+            if [ -f /tmp/sharun+helper-libs-x86_64.tar ]; then
+              tar -xf /tmp/sharun+helper-libs-x86_64.tar -C "$APPDIR" sharun dash 2>/dev/null || \
+                tar -xf /tmp/sharun+helper-libs-x86_64.tar -C "$APPDIR" sharun
+              chmod +x "$APPDIR"/sharun "$APPDIR"/dash 2>/dev/null || true
+            fi
+          fi
+
+          export DESKTOP="/usr/share/applications/flow-control.desktop"
+          export ICON="/usr/share/icons/hicolor/256x256/apps/flow-control.png"
+          export MAIN_BIN="FlowControl"
+          export DEPLOY_PYTHON=1
+          export DEPLOY_QT=1
+          export DEPLOY_QML=1
+          export DEPLOY_KF=1
+          export USE_HOST_DRIVERS=1
+          export STRACE_MODE=0
+          export DEPLOY_LOCALE=0
+          export DEPLOY_DATADIR=0
+          export NO_STRIP=1
+          export OUTPUT_APPIMAGE=1
+
+          /opt/sharun-tools/quick-sharun.sh \
+            /usr/bin/FlowControl \
+            /usr/lib/python*/lib-dynload/_ssl*.so \
+            /usr/lib/python*/lib-dynload/_hashlib*.so \
+            /usr/lib/libQt6Core.so.6 \
+            /usr/lib/libQt6Gui.so.6 \
+            /usr/lib/libQt6Widgets.so.6 \
+            /usr/lib/libQt6Qml.so.6 \
+            /usr/lib/libQt6Quick.so.6 \
+            /usr/lib/libQt6QuickControls2.so.6 \
+            /usr/lib/libQt6QuickLayouts.so.6 \
+            /usr/lib/libQt6QuickShapes.so.6 \
+            /usr/lib/libQt6Network.so.6 \
+            /usr/lib/libQt6Svg.so.6 \
+            /usr/lib/libQt6SvgWidgets.so.6 \
+            /usr/lib/libQt6OpenGL.so.6 \
+            /usr/lib/libQt6OpenGLWidgets.so.6 \
+            /usr/lib/libQt6WebSockets.so.6 \
+            /usr/lib/libQt6Multimedia.so.6 \
+            /usr/lib/libQt6MultimediaQuick.so.6 \
+            /usr/lib/libKF6*.so.6 \
+            /usr/lib/qt6/plugins/kf6/kirigami/platform/*.so
+
+          test -x dist/FlowControl-Linux-x86_64.AppImage
+          ls -lh dist/FlowControl-Linux-x86_64.AppImage
 
       - name: Upload Linux AppImage Artifact
         uses: actions/upload-artifact@v7

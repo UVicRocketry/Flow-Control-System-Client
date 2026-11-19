@@ -24,6 +24,7 @@ Controls.ToolButton {
     property bool boldText: false
     property bool mirrorMnemonic: false
     property bool centerContent: false
+    property bool _mnemonicReady: true
     property string toolTipText: ""
     property bool toolTipVisible: hovered && toolTipText.length > 0
     readonly property bool hasIcon: iconName.length > 0
@@ -54,11 +55,9 @@ Controls.ToolButton {
     Controls.ToolTip.text: toolTipText
     onVisibleChanged: {
         if (visible && labelText.length > 0 && !mirrorMnemonic) {
+            _mnemonicReady = false;
             Qt.callLater(function() {
-                if (root.visible && !root.mirrorMnemonic) {
-                    labelItem.Kirigami.MnemonicData.label = "";
-                    labelItem.Kirigami.MnemonicData.label = root.labelText;
-                }
+                root._mnemonicReady = true;
             });
         }
     }
@@ -115,7 +114,7 @@ Controls.ToolButton {
             Layout.alignment: Qt.AlignVCenter
             Kirigami.MnemonicData.enabled: root.enabled && root.visible && root.labelText.length > 0 && !root.mirrorMnemonic
             Kirigami.MnemonicData.controlType: root.labelText.indexOf("&") !== -1 ? Kirigami.MnemonicData.ActionElement : Kirigami.MnemonicData.SecondaryControl
-            Kirigami.MnemonicData.label: root.labelText
+            Kirigami.MnemonicData.label: root._mnemonicReady ? root.labelText : ""
             text: root.mirrorMnemonic ? root.mirroredRichText : labelItem.Kirigami.MnemonicData.richTextLabel
             textFormat: Text.StyledText
             font.bold: root.boldText

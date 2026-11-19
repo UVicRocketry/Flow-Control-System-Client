@@ -23,6 +23,12 @@ CURRENT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(CURRENT_DIR))
 
 IS_FROZEN = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+IS_APPIMAGE = bool(
+    os.environ.get("APPIMAGE")
+    or os.environ.get("SHARUN_DIR")
+    or os.environ.get("APPDIR")
+)
+IS_PACKAGED = IS_FROZEN or IS_APPIMAGE
 
 
 def get_resource_dir() -> Path:
@@ -164,7 +170,7 @@ def configure_qml_paths(
         engine.add_import_path(str(bundle_root))
         if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
             os.add_dll_directory(str(bundle_root))
-    else:
+    elif not IS_PACKAGED:
         add_dev_qml_paths(engine)
 
 
@@ -188,7 +194,7 @@ def handle_startup_error(
     print(full_msg, file=sys.stderr)
 
     try:
-        if IS_FROZEN:
+        if IS_PACKAGED:
             state_dir = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "fcs-client"
             state_dir.mkdir(parents=True, exist_ok=True)
             log_path = state_dir / "FlowControl_startup.log"

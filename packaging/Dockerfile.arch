@@ -1,0 +1,98 @@
+FROM archlinux:base-devel
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+COPY packaging/arch-packages.txt /tmp/arch-packages.txt
+COPY requirements.txt /tmp/requirements.txt
+
+RUN PKGS=$(tr -d '\r' < /tmp/arch-packages.txt | grep -vE '^[[:space:]]*(#|$)' | tr '\n' ' ') && \
+    pacman -Syu --noconfirm --needed $PKGS && \
+    (tr -d '\r' < /tmp/requirements.txt | grep -ivE '^[[:space:]]*(#|pyside6|shiboken6|$)' || true) > /tmp/requirements-extra.txt && \
+    if [ -s /tmp/requirements-extra.txt ]; then \
+        python -m pip install --break-system-packages --no-cache-dir -r /tmp/requirements-extra.txt; \
+    fi && \
+    mkdir -p /opt/sharun-tools/cache && \
+    curl -fsSL --retry 5 --retry-delay 3 \
+        "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/main/useful-tools/get-debloated-pkgs.sh" \
+        -o /opt/sharun-tools/get-debloated-pkgs.sh && \
+    curl -fsSL --retry 5 --retry-delay 3 \
+        "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/main/useful-tools/quick-sharun.sh" \
+        -o /opt/sharun-tools/quick-sharun.sh && \
+    chmod +x /opt/sharun-tools/get-debloated-pkgs.sh /opt/sharun-tools/quick-sharun.sh && \
+    APPIMAGE_ARCH=x86_64 && \
+    eval "$(grep -E '^(SHARUN_LINK|APPIMAGETOOL_LINK|CROSS_LIBC_DLOPEN_LINK)=' /opt/sharun-tools/quick-sharun.sh)" && \
+    curl -fsSL --retry 5 --retry-delay 3 "$SHARUN_LINK" -o /opt/sharun-tools/cache/sharun+helper-libs-x86_64.tar && \
+    curl -fsSL --retry 5 --retry-delay 3 "$APPIMAGETOOL_LINK" -o /opt/sharun-tools/cache/appimagetool && \
+    curl -fsSL --retry 5 --retry-delay 3 "$CROSS_LIBC_DLOPEN_LINK" -o /opt/sharun-tools/cache/cross-libc-dlopen-x86_64.tar && \
+    chmod +x /opt/sharun-tools/cache/appimagetool && \
+    rm -f /tmp/arch-packages.txt /tmp/requirements.txt /tmp/requirements-extra.txt
+
+RUN --mount=type=secret,id=github_token \
+    GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" \
+    /opt/sharun-tools/get-debloated-pkgs.sh --add-opengl icu-mini libxml2-mini && \
+    for pydir in /usr/lib/python3.*; do \
+        [ -d "$pydir" ] || continue; \
+        rm -rf \
+            "$pydir"/test "$pydir"/unittest "$pydir"/idlelib "$pydir"/pydoc_data \
+            "$pydir"/Tools "$pydir"/turtledemo "$pydir"/ensurepip "$pydir"/venv \
+            "$pydir"/lib2to3 "$pydir"/tkinter \
+            "$pydir"/site-packages/pip* "$pydir"/site-packages/setuptools* \
+            "$pydir"/site-packages/wheel* "$pydir"/site-packages/pkg_resources* \
+            "$pydir"/site-packages/PySide6/include \
+            "$pydir"/site-packages/PySide6/typesystems \
+            "$pydir"/site-packages/PySide6/glue \
+            "$pydir"/site-packages/PySide6/scripts \
+            "$pydir"/site-packages/PySide6/QtAsyncio \
+            "$pydir"/site-packages/PySide6/support \
+            "$pydir"/site-packages/PySide6/Qt3D* \
+            "$pydir"/site-packages/PySide6/QtQuick3D* \
+            "$pydir"/site-packages/PySide6/QtCharts* \
+            "$pydir"/site-packages/PySide6/QtGraphs* \
+            "$pydir"/site-packages/PySide6/QtLocation* \
+            "$pydir"/site-packages/PySide6/QtPositioning* \
+            "$pydir"/site-packages/PySide6/QtSpatialAudio* \
+            "$pydir"/site-packages/PySide6/QtPdf* \
+            "$pydir"/site-packages/PySide6/QtSensors* \
+            "$pydir"/site-packages/PySide6/QtVirtualKeyboard* \
+            "$pydir"/site-packages/PySide6/QtWebChannel* \
+            "$pydir"/site-packages/PySide6/QtWebEngine* \
+            "$pydir"/site-packages/PySide6/QtRemoteObjects* \
+            "$pydir"/site-packages/PySide6/QtScxml* \
+            "$pydir"/site-packages/PySide6/QtStateMachine* \
+            "$pydir"/site-packages/PySide6/QtTextToSpeech* \
+            "$pydir"/site-packages/PySide6/QtSerialPort* \
+            "$pydir"/site-packages/PySide6/QtSerialBus* \
+            "$pydir"/site-packages/PySide6/QtBluetooth* \
+            "$pydir"/site-packages/PySide6/QtNfc* \
+            "$pydir"/site-packages/PySide6/QtHttpServer* \
+            "$pydir"/site-packages/PySide6/QtDataVisualization* \
+            "$pydir"/site-packages/PySide6/Qt5Compat* \
+            "$pydir"/site-packages/PySide6/QtQuickTimeline* \
+            "$pydir"/site-packages/PySide6/QtQuickEffectMaker* \
+            "$pydir"/site-packages/PySide6/QtWebView* \
+            "$pydir"/site-packages/PySide6/QtDesigner* \
+            "$pydir"/site-packages/PySide6/QtHelp* \
+            "$pydir"/site-packages/PySide6/QtSql* \
+            "$pydir"/site-packages/PySide6/QtTest* \
+            "$pydir"/site-packages/PySide6/QtXml* \
+            "$pydir"/site-packages/PySide6/QtConcurrent* \
+            "$pydir"/site-packages/PySide6/QtPrintSupport*; \
+        find "$pydir" -type f -name '*.py' -exec chmod a-x {} +; \
+    done && \
+    rm -rf \
+        /usr/lib/qt6/qml/QtQuick/Controls/Material \
+        /usr/lib/qt6/qml/QtQuick/Controls/Universal \
+        /usr/lib/qt6/qml/QtQuick/Controls/Imagine \
+        /usr/lib/qt6/qml/QtQuick/Controls/FluentWinUI3 \
+        /usr/lib/qt6/qml/QtQuick/Controls/Fusion \
+        /usr/lib/qt6/qml/QtTest \
+        /usr/lib/qt6/qml/QtQuick/Timeline \
+        /usr/lib/qt6/qml/QtQuick/Effects \
+        /usr/lib/qt6/qml/QtQuick/Particles \
+        /usr/lib/qt6/qml/QtQuick/VectorImage \
+        /usr/lib/qt6/qml/QtQuick/VirtualKeyboard \
+        /usr/share/qt6/translations \
+        /usr/share/doc \
+        /usr/share/man && \
+    find /usr/lib -type f -name '*.so*' -exec strip -s -R .comment --strip-unneeded {} + 2>/dev/null || true && \
+    pacman -Scc --noconfirm
