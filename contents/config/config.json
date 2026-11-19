@@ -6,6 +6,6 @@
     },
     "external_data": [],
     "ui": {
-        "view_refresh_hz": 5
+        "view_refresh_hz": 60
     }
 }

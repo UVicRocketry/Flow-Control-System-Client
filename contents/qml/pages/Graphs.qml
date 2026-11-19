@@ -213,14 +213,14 @@ ColumnLayout {
             ch = {
             "key": "P_RUN_TANK",
             "title": "New Telemetry Graph",
-            "unit": "PSI",
+            "unit": "kPa",
             "color": "theme:highlight"
         };
         var draftCard = {
             "title": ch.title || ch.key,
             "channelKey": ch.key,
             "xAxisLabel": "Time (s)",
-            "yAxisLabel": ch.unit || "PSI",
+            "yAxisLabel": ch.unit || "kPa",
             "accentColor": ch.color || "theme:highlight",
             "autoScale": true,
             "manualMinY": 0,

@@ -2,7 +2,7 @@
     "channels": {
         "P_RUN_TANK": {
             "title": "Runtank Pressure",
-            "unit": "PSI",
+            "unit": "kPa",
             "color": "theme:highlight",
             "fallback_color": "#3daee9"
         },
@@ -14,31 +14,31 @@
         },
         "L_RUN_TANK": {
             "title": "Runtank Mass",
-            "unit": "lbf",
+            "unit": "N",
             "color": "theme:positive",
             "fallback_color": "#2ecc71"
         },
         "P_N2O_FLOW": {
             "title": "N2O Flow Pressure",
-            "unit": "PSI",
+            "unit": "kPa",
             "color": "theme:highlight",
             "fallback_color": "#3daee9"
         },
         "P_N2_FLOW": {
             "title": "N2 Flow Pressure",
-            "unit": "PSI",
+            "unit": "kPa",
             "color": "theme:link",
             "fallback_color": "#3daee9"
         },
         "P_COMB_CHMBR": {
             "title": "Comb Chmbr. Pressure",
-            "unit": "PSI",
+            "unit": "kPa",
             "color": "theme:neutral",
             "fallback_color": "#f39c12"
         },
         "P_INJECTOR": {
             "title": "Injector Pressure",
-            "unit": "PSI",
+            "unit": "kPa",
             "color": "theme:highlight",
             "fallback_color": "#3daee9"
         },
@@ -62,7 +62,7 @@
         },
         "L_THRUST": {
             "title": "Thrust",
-            "unit": "lbf",
+            "unit": "N",
             "color": "theme:positive",
             "fallback_color": "#2ecc71"
         }
@@ -72,7 +72,7 @@
             "title": "Runtank Pressure",
             "channelKey": "P_RUN_TANK",
             "xAxisLabel": "Time (s)",
-            "yAxisLabel": "PSI",
+            "yAxisLabel": "kPa",
             "accentColor": "theme:highlight",
             "autoScale": true,
             "manualMinY": 0.0,
@@ -84,7 +84,7 @@
             "showGrid": true,
             "showFill": true,
             "colSpan": 2,
-            "cardHeight": 230
+            "cardHeight": 234
         },
         {
             "title": "Runtank Temp",
@@ -102,18 +102,18 @@
             "showGrid": true,
             "showFill": true,
             "colSpan": 1,
-            "cardHeight": 230
+            "cardHeight": 234
         },
         {
             "title": "Runtank Mass",
             "channelKey": "L_RUN_TANK",
             "xAxisLabel": "Time (s)",
-            "yAxisLabel": "lbf",
+            "yAxisLabel": "N",
             "accentColor": "theme:positive",
             "autoScale": true,
             "manualMinY": 0.0,
             "manualMaxY": 100.0,
-            "minYRange": 1.0,
+            "minYRange": 10.0,
             "filterOutliers3Std": false,
             "smoothingWindow": 1,
             "maxBuckets": 300,
@@ -126,7 +126,7 @@
             "title": "N2O Flow Pressure",
             "channelKey": "P_N2O_FLOW",
             "xAxisLabel": "Time (s)",
-            "yAxisLabel": "PSI",
+            "yAxisLabel": "kPa",
             "accentColor": "theme:highlight",
             "autoScale": true,
             "manualMinY": 0.0,
@@ -144,7 +144,7 @@
             "title": "N2 Flow Pressure",
             "channelKey": "P_N2_FLOW",
             "xAxisLabel": "Time (s)",
-            "yAxisLabel": "PSI",
+            "yAxisLabel": "kPa",
             "accentColor": "theme:link",
             "autoScale": true,
             "manualMinY": 0.0,
@@ -162,7 +162,7 @@
             "title": "Comb Chmbr. Pressure",
             "channelKey": "P_COMB_CHMBR",
             "xAxisLabel": "Time (s)",
-            "yAxisLabel": "PSI",
+            "yAxisLabel": "kPa",
             "accentColor": "theme:neutral",
             "autoScale": true,
             "manualMinY": 0.0,
@@ -180,7 +180,7 @@
             "title": "Injector Pressure",
             "channelKey": "P_INJECTOR",
             "xAxisLabel": "Time (s)",
-            "yAxisLabel": "PSI",
+            "yAxisLabel": "kPa",
             "accentColor": "theme:highlight",
             "autoScale": true,
             "manualMinY": 0.0,
@@ -234,7 +234,7 @@
             "title": "Thrust",
             "channelKey": "L_THRUST",
             "xAxisLabel": "Time (s)",
-            "yAxisLabel": "lbf",
+            "yAxisLabel": "N",
             "accentColor": "theme:positive",
             "autoScale": true,
             "manualMinY": 0.0,

@@ -64,13 +64,11 @@ def _unit_for_channel(ch: str, known_channels: dict) -> str:
         u = str(known_channels[ch]["unit"])
         return "C" if u == "°C" else u.lower() if u == "PSI" else u
     if ch.startswith("P_"):
-        return "psi"
+        return "kPa"
     if ch.startswith("T_"):
         return "C"
-    if ch == "L_THRUST":
-        return "N"
     if ch.startswith("L_"):
-        return "kg"
+        return "N"
     return ""
 
 

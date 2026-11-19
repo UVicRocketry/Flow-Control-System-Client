@@ -16,17 +16,17 @@ from telemetry_files import extract_flat_values
 def register_channel_if_missing(known_channels: dict, key: str) -> bool:
     """
     registers a newly discovered channel key with default unit and theme colour
-    inferred from its prefix (P_ -> PSI, T_ -> °C, L_ -> lbf).
+    inferred from its prefix (P_ -> kPa, T_ -> °C, L_ -> N).
     returns True if a new channel was added.
     """
     if not key or key in known_channels:
         return False
     unit = (
-        "PSI"
+        "kPa"
         if key.startswith("P_")
         else (
             "°C" if key.startswith("T_")
-            else ("lbf" if key.startswith("L_") else "")
+            else ("N" if key.startswith("L_") else "")
         )
     )
     color = (

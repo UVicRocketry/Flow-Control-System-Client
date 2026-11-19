@@ -14,7 +14,7 @@ Kirigami.Dialog {
     property string editChannelKey: ""
     property string editColor: "theme:highlight"
     property string editXAxisLabel: "Time (s)"
-    property string editYAxisLabel: "PSI"
+    property string editYAxisLabel: "kPa"
     property bool editAutoScale: true
     property real editManualMinY: 0
     property real editManualMaxY: 1000
@@ -41,7 +41,7 @@ Kirigami.Dialog {
         root.editChannelKey = cardData.channelKey || "P_RUN_TANK";
         root.editColor = String(cardData.accentColor || "theme:highlight");
         root.editXAxisLabel = cardData.xAxisLabel !== undefined ? cardData.xAxisLabel : "Time (s)";
-        root.editYAxisLabel = cardData.yAxisLabel !== undefined ? cardData.yAxisLabel : "PSI";
+        root.editYAxisLabel = cardData.yAxisLabel !== undefined ? cardData.yAxisLabel : "kPa";
         root.editAutoScale = cardData.autoScale !== undefined ? Boolean(cardData.autoScale) : true;
         root.editManualMinY = Number(cardData.manualMinY ?? 0);
         root.editManualMaxY = Number(cardData.manualMaxY ?? 1000);
@@ -361,7 +361,7 @@ Kirigami.Dialog {
                 id: yAxisField
 
                 Layout.fillWidth: true
-                placeholderText: "PSI / °C / lbf"
+                placeholderText: "kPa / °C / N"
             }
 
             Controls.Label {

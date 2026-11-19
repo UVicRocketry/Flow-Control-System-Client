@@ -13,7 +13,7 @@ Kirigami.Card {
     property string channelKey: "P_RUN_TANK"
     property string title: "Runtank Pressure"
     property string xAxisLabel: "Time (s)"
-    property string yAxisLabel: "PSI"
+    property string yAxisLabel: "kPa"
     property string accentColor: "theme:highlight"
     property bool autoScale: true
     property real manualMinY: 0
