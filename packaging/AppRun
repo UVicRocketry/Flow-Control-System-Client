@@ -12,8 +12,8 @@ else
     INTERNAL_DIR="${BIN_DIR}"
 fi
 
-# 1. Library Path: Append (do not prepend over host Mesa/GPU drivers) _internal
-export LD_LIBRARY_PATH="${INTERNAL_DIR}:${INTERNAL_DIR}/PySide6/Qt/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# 1. Library Path: Prefer bundled PySide6 Qt libs over _internal/ root, and keep host Mesa/GPU drivers intact
+export LD_LIBRARY_PATH="${INTERNAL_DIR}/PySide6/Qt/lib:${INTERNAL_DIR}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # 2. Isolate Qt Plugins & QML Imports strictly to the AppImage bundle
 #    (Overwrites any host QT_PLUGIN_PATH / QML2_IMPORT_PATH to prevent Qt6 version ABI crashes!)

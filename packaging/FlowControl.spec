@@ -159,7 +159,7 @@ def add_binary_once(src_path: Path, dest_dir: str = "."):
 if sys.platform.startswith("linux"):
     for l_dir in [Path("/usr/lib/x86_64-linux-gnu"), Path("/usr/lib"), Path("/usr/lib64")]:
         if l_dir.exists():
-            for pattern in ["*Kirigami*.so*", "*KF6*.so*", "*Breeze*.so*", "*qqc2*.so*", "*WebSockets*.so*", "*QuickShapes*.so*"]:
+            for pattern in ["*Kirigami*.so*", "*KF6*.so*", "*Breeze*.so*", "*qqc2*.so*"]:
                 for match in l_dir.glob(pattern):
                     add_binary_once(match, ".")
             for plugin in l_dir.rglob("*KIconEnginePlugin*.so*"):
@@ -262,11 +262,22 @@ a = Analysis(
     optimize=1,
 )
 
-# Strip host-provided libraries that cause fontconfig XML warnings on Linux
+# Strip host-provided libraries that cause fontconfig XML warnings, Mesa/GPU clashes, or GTK3/GLib deadlocks on Linux
 if sys.platform.startswith("linux"):
     EXCLUDED_HOST_LIBS = [
         "libfontconfig.so",
         "libfreetype.so",
+        "libGL.so",
+        "libEGL.so",
+        "libGLX.so",
+        "libGLdispatch.so",
+        "libdrm.so",
+        "libglib-2.0.so",
+        "libgobject-2.0.so",
+        "libgio-2.0.so",
+        "libgmodule-2.0.so",
+        "libgthread-2.0.so",
+        "libharfbuzz.so",
     ]
     a.binaries = [
         item for item in a.binaries

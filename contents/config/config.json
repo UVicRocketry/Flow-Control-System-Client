@@ -6,6 +6,12 @@
     },
     "external_data": [],
     "ui": {
-        "view_refresh_hz": 60
+        "view_refresh_hz": 60,
+        "split_active": false,
+        "left_page": "dashboard",
+        "right_page": "",
+        "last_right_page": "",
+        "focused_pane": "left",
+        "split_ratio": 0.5
     }
 }

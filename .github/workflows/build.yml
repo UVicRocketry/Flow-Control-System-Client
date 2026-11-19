@@ -24,21 +24,12 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Cache Python installed site-packages & appimagetool
-        uses: actions/cache@v5
-        id: linux-py-cache
-        with:
-          path: |
-            /opt/hostedtoolcache/Python/3.14.*
-            ~/.cache/appimagetool
-          key: linux-py314-v2-${{ hashFiles('requirements.txt', 'requirements-build.txt') }}
-
       - name: Cache KDE Neon APT .deb archives
         uses: actions/cache@v5
         id: apt-cache
         with:
           path: /tmp/apt-cache
-          key: linux-apt-neon-kf6-v3
+          key: linux-apt-neon-kf6-v4
 
       - name: Add KDE Neon repository & install KF6/Kirigami
         run: |
@@ -65,18 +56,39 @@ jobs:
             qml6-module-qtquick-controls \
             qml6-module-qtquick-layouts \
             qml6-module-qtquick-templates \
-            qml6-module-qtquick-shapes \
-            qml6-module-qtwebsockets \
-            libqt6websockets6-dev
+            qml6-module-qtquick-shapes
 
           sudo rm -rf /tmp/apt-cache/partial /tmp/apt-cache/lock
           sudo chown -R $USER:$USER /tmp/apt-cache
+
+      - name: Detect installed KDE Neon Qt6 version
+        id: qt-ver
+        run: |
+          RAW_VER=$(dpkg-query -W -f='${Version}\n' libqt6core6t64 2>/dev/null || dpkg-query -W -f='${Version}\n' libqt6core6)
+          QT_VER=$(echo "$RAW_VER" | sed 's/^[0-9]*://' | sed -n 's/^\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
+          echo "Detected Qt6 version: $QT_VER"
+          echo "version=$QT_VER" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Python installed site-packages & appimagetool
+        uses: actions/cache@v5
+        id: linux-py-cache
+        with:
+          path: |
+            /opt/hostedtoolcache/Python/3.14.*
+            ~/.cache/appimagetool
+          key: linux-py314-qt${{ steps.qt-ver.outputs.version }}-v3-${{ hashFiles('requirements.txt', 'requirements-build.txt') }}
 
       - name: Install Python dependencies (Skipped on Cache Hit)
         if: steps.linux-py-cache.outputs.cache-hit != 'true'
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-build.txt
+          QT_VER="${{ steps.qt-ver.outputs.version }}"
+          if [ -n "$QT_VER" ]; then
+            pip install "PySide6-Essentials==${QT_VER}" "PySide6-Addons==${QT_VER}" -r requirements-build.txt || \
+              pip install -r requirements.txt -r requirements-build.txt
+          else
+            pip install -r requirements.txt -r requirements-build.txt
+          fi
 
       - name: Compile Application with PyInstaller
         run: |

@@ -186,18 +186,26 @@ def handle_startup_error(
     print(full_msg, file=sys.stderr)
 
     try:
-        log_path = (
-            Path(sys.executable).parent / "FlowControl_startup.log"
-            if IS_FROZEN
-            else Path("FlowControl_startup.log")
-        )
+        if IS_FROZEN:
+            state_dir = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "fcs-client"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            log_path = state_dir / "FlowControl_startup.log"
+        else:
+            log_path = Path("FlowControl_startup.log")
         import_paths = "\n".join(engine.import_path_list())
         log_path.write_text(
             f"{full_msg}\n\nImport Paths:\n{import_paths}",
             encoding="utf-8",
         )
     except Exception:
-        pass
+        try:
+            import tempfile
+            (Path(tempfile.gettempdir()) / "FlowControl_startup.log").write_text(
+                f"{full_msg}",
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
 
     msg_box = QMessageBox()
     msg_box.icon = QMessageBox.Icon.Critical
