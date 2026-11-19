@@ -242,6 +242,131 @@ def _finalize_buckets(
     return ts, vs, min_vs, max_vs
 
 
+def _compute_mean_std(v_vals: list[float]) -> tuple[float, float]:
+    """computes population (mean, std) for a non-empty list of floats."""
+    n = len(v_vals)
+    sum_v = 0.0
+    sum_sq = 0.0
+    for v_val in v_vals:
+        sum_v += v_val
+        sum_sq += v_val * v_val
+    mean_v = sum_v / n
+    variance = max(0.0, (sum_sq / n) - (mean_v * mean_v)) if n > 1 else 0.0
+    return mean_v, math.sqrt(variance)
+
+
+def _bucket_all_samples(
+    t_vals: list[float],
+    v_vals: list[float],
+    inv_bucket_size: float,
+) -> tuple[dict, float, float, float, float, float]:
+    """accumulates all samples into time buckets and returns stats in a single pass."""
+    raw_n = len(v_vals)
+    sum_v = 0.0
+    sum_sq = 0.0
+    clean_min = v_vals[0]
+    clean_max = v_vals[0]
+    buckets: dict = {}
+    floor = math.floor
+
+    for t_val, v_val in zip(t_vals, v_vals):
+        sum_v += v_val
+        sum_sq += v_val * v_val
+        if v_val < clean_min:
+            clean_min = v_val
+        if v_val > clean_max:
+            clean_max = v_val
+
+        b_idx = floor(t_val * inv_bucket_size)
+        b = buckets.get(b_idx)
+        if b is None:
+            buckets[b_idx] = [v_val, 1, v_val, v_val]
+        else:
+            b[0] += v_val
+            b[1] += 1
+            if v_val < b[2]:
+                b[2] = v_val
+            if v_val > b[3]:
+                b[3] = v_val
+
+    mean_v = sum_v / raw_n
+    variance = max(0.0, (sum_sq / raw_n) - (mean_v * mean_v)) if raw_n > 1 else 0.0
+    return buckets, clean_min, clean_max, mean_v, math.sqrt(variance), v_vals[-1]
+
+
+def _bucket_filtered_samples(
+    t_vals: list[float],
+    v_vals: list[float],
+    inv_bucket_size: float,
+    mean_v: float,
+    threshold: float,
+) -> tuple[dict, float, float, float, float, int]:
+    """accumulates samples within |v - mean_v| <= threshold into time buckets."""
+    clean_sum = 0.0
+    filtered_n = 0
+    clean_min = math.inf
+    clean_max = -math.inf
+    latest_v = v_vals[-1]
+    buckets: dict = {}
+    floor = math.floor
+
+    for t_val, v_val in zip(t_vals, v_vals):
+        if abs(v_val - mean_v) > threshold:
+            continue
+        if v_val < clean_min:
+            clean_min = v_val
+        if v_val > clean_max:
+            clean_max = v_val
+        clean_sum += v_val
+        filtered_n += 1
+        latest_v = v_val
+
+        b_idx = floor(t_val * inv_bucket_size)
+        b = buckets.get(b_idx)
+        if b is None:
+            buckets[b_idx] = [v_val, 1, v_val, v_val]
+        else:
+            b[0] += v_val
+            b[1] += 1
+            if v_val < b[2]:
+                b[2] = v_val
+            if v_val > b[3]:
+                b[3] = v_val
+
+    return buckets, clean_min, clean_max, clean_sum, latest_v, filtered_n
+
+
+def _try_bucket_filtered_samples(
+    t_vals: list[float],
+    v_vals: list[float],
+    inv_bucket_size: float,
+) -> tuple[dict, float, float, float, float, float, int] | None:
+    """
+    attempts 3-std outlier filtering and bucketing.
+    returns None if std is degenerate or all points are rejected, signaling
+    the caller to fall back to unfiltered bucketing.
+    """
+    mean_v, std_v = _compute_mean_std(v_vals)
+    if std_v <= 1e-6:
+        return None
+
+    buckets, clean_min, clean_max, clean_sum, latest_v, filtered_n = (
+        _bucket_filtered_samples(t_vals, v_vals, inv_bucket_size, mean_v, 3.0 * std_v)
+    )
+    if filtered_n == 0:
+        return None
+
+    return (
+        buckets,
+        clean_min,
+        clean_max,
+        clean_sum / filtered_n,
+        std_v,
+        latest_v,
+        filtered_n,
+    )
+
+
 def _series_from_channel_arrays(
     t_vals: list[float],
     v_vals: list[float],
@@ -260,92 +385,19 @@ def _series_from_channel_arrays(
     dt_span = max(win_end - win_start, 1e-3)
     bucket_size = dt_span / float(max_b)
     inv_bucket_size = float(max_b) / dt_span
-    floor = math.floor
 
-    if not filter_outliers_3std or raw_n < 4:
-        sum_v = 0.0
-        sum_sq = 0.0
-        clean_min = v_vals[0]
-        clean_max = v_vals[0]
-        buckets: dict = {}
-
-        for t_val, v_val in zip(t_vals, v_vals):
-            sum_v += v_val
-            sum_sq += v_val * v_val
-            if v_val < clean_min:
-                clean_min = v_val
-            if v_val > clean_max:
-                clean_max = v_val
-
-            b_idx = floor(t_val * inv_bucket_size)
-            b = buckets.get(b_idx)
-            if b is None:
-                buckets[b_idx] = [v_val, 1, v_val, v_val]
-            else:
-                b[0] += v_val
-                b[1] += 1
-                if v_val < b[2]:
-                    b[2] = v_val
-                if v_val > b[3]:
-                    b[3] = v_val
-
-        mean_v = sum_v / raw_n
-        variance = max(0.0, (sum_sq / raw_n) - (mean_v * mean_v)) if raw_n > 1 else 0.0
-        std_v = math.sqrt(variance)
-        filtered_n = raw_n
-        clean_mean = mean_v
-        latest_v = v_vals[-1]
+    filtered = (
+        _try_bucket_filtered_samples(t_vals, v_vals, inv_bucket_size)
+        if filter_outliers_3std and raw_n >= 4
+        else None
+    )
+    if filtered is not None:
+        buckets, clean_min, clean_max, clean_mean, std_v, latest_v, filtered_n = filtered
     else:
-        sum_v = 0.0
-        sum_sq = 0.0
-        for v_val in v_vals:
-            sum_v += v_val
-            sum_sq += v_val * v_val
-        mean_v = sum_v / raw_n
-        variance = max(0.0, (sum_sq / raw_n) - (mean_v * mean_v))
-        std_v = math.sqrt(variance)
-
-        if std_v > 1e-6:
-            threshold = 3.0 * std_v
-            clean_sum = 0.0
-            filtered_n = 0
-            clean_min = 0.0
-            clean_max = 0.0
-            latest_v = v_vals[-1]
-            buckets = {}
-            for t_val, v_val in zip(t_vals, v_vals):
-                if abs(v_val - mean_v) <= threshold:
-                    if filtered_n == 0:
-                        clean_min = v_val
-                        clean_max = v_val
-                    else:
-                        if v_val < clean_min:
-                            clean_min = v_val
-                        if v_val > clean_max:
-                            clean_max = v_val
-                    clean_sum += v_val
-                    filtered_n += 1
-                    latest_v = v_val
-                    b_idx = floor(t_val * inv_bucket_size)
-                    b = buckets.get(b_idx)
-                    if b is None:
-                        buckets[b_idx] = [v_val, 1, v_val, v_val]
-                    else:
-                        b[0] += v_val
-                        b[1] += 1
-                        if v_val < b[2]:
-                            b[2] = v_val
-                        if v_val > b[3]:
-                            b[3] = v_val
-            if filtered_n == 0:
-                return _series_from_channel_arrays(
-                    t_vals, v_vals, win_start, win_end, max_buckets, False, smoothing_window
-                )
-            clean_mean = clean_sum / filtered_n
-        else:
-            return _series_from_channel_arrays(
-                t_vals, v_vals, win_start, win_end, max_buckets, False, smoothing_window
-            )
+        buckets, clean_min, clean_max, clean_mean, std_v, latest_v = (
+            _bucket_all_samples(t_vals, v_vals, inv_bucket_size)
+        )
+        filtered_n = raw_n
 
     ts, vs, min_vs, max_vs = _finalize_buckets(
         buckets, win_start, win_end, bucket_size, smoothing_window
@@ -408,17 +460,10 @@ def query_channel_series(
     )
 
 
-def query_batch_channels(
+def _group_requests_by_window(
     records: list, seconds_list: list, requests: list
-) -> dict:
-    """
-    executes a batched query across multiple GraphCards in a single pass,
-    extracting all requested channels per time-window slice in one loop.
-    """
-    results: dict = {}
-    if not requests:
-        return results
-
+) -> list[tuple[float, float, int, int, list[dict]]]:
+    """groups batch requests by shared (tStart, tEnd) bounds and bisect slice."""
     bounds_groups: dict = {}
     for req in requests:
         if not isinstance(req, dict):
@@ -436,47 +481,90 @@ def query_batch_channels(
                 i_right = bisect.bisect_right(seconds_list, w_end)
             else:
                 i_left, i_right = 0, 0
-            group = [w_start, w_end, i_left, i_right, []]
+            group = (w_start, w_end, i_left, i_right, [])
             bounds_groups[bounds_key] = group
         group[4].append(req)
+    return list(bounds_groups.values())
 
-    for w_start, w_end, i_left, i_right, group_reqs in bounds_groups.values():
-        if i_left >= i_right:
-            for req in group_reqs:
-                results[str(req.get("index", ""))] = _empty_series_result(
-                    w_start, w_end
-                )
+
+def _extract_window_channel_arrays(
+    records: list, i_left: int, i_right: int, group_reqs: list[dict]
+) -> dict[str, tuple[list[float], list[float]]]:
+    """extracts (t_vals, v_vals) arrays for all channels in a slice in one pass."""
+    channel_arrays: dict[str, tuple[list[float], list[float]]] = {}
+    for req in group_reqs:
+        ch = str(req.get("channel", ""))
+        if ch and ch not in channel_arrays:
+            channel_arrays[ch] = ([], [])
+
+    ch_items = list(channel_arrays.items())
+    for idx in range(i_left, i_right):
+        r = records[idx]
+        t_val = r["t"]
+        vals = r["values"]
+        for ch, (ts_list, vs_list) in ch_items:
+            v = vals.get(ch)
+            if v is not None:
+                ts_list.append(t_val)
+                vs_list.append(float(v))
+
+    return channel_arrays
+
+
+def _evaluate_window_group(
+    records: list,
+    w_start: float,
+    w_end: float,
+    i_left: int,
+    i_right: int,
+    group_reqs: list[dict],
+    results: dict,
+) -> None:
+    """computes series results for all requests sharing a single time-window slice."""
+    if i_left >= i_right:
+        for req in group_reqs:
+            results[str(req.get("index", ""))] = _empty_series_result(
+                w_start, w_end
+            )
+        return
+
+    channel_arrays = _extract_window_channel_arrays(
+        records, i_left, i_right, group_reqs
+    )
+    for req in group_reqs:
+        card_id = str(req.get("index", ""))
+        ch = str(req.get("channel", ""))
+        if not ch:
+            results[card_id] = _empty_series_result(w_start, w_end)
             continue
+        t_vals, v_vals = channel_arrays[ch]
+        results[card_id] = _series_from_channel_arrays(
+            t_vals,
+            v_vals,
+            w_start,
+            w_end,
+            int(req.get("maxBuckets", 300)),
+            bool(req.get("filterOutliers3Std", False)),
+            int(req.get("smoothingWindow", 1)),
+        )
 
-        channel_arrays: dict[str, tuple[list[float], list[float]]] = {}
-        for req in group_reqs:
-            ch = str(req.get("channel", ""))
-            if ch and ch not in channel_arrays:
-                channel_arrays[ch] = ([], [])
 
-        ch_items = list(channel_arrays.items())
-        for idx in range(i_left, i_right):
-            r = records[idx]
-            t_val = r["t"]
-            vals = r["values"]
-            for ch, (ts_list, vs_list) in ch_items:
-                v = vals.get(ch)
-                if v is not None:
-                    ts_list.append(t_val)
-                    vs_list.append(float(v))
+def query_batch_channels(
+    records: list, seconds_list: list, requests: list
+) -> dict:
+    """
+    executes a batched query across multiple GraphCards in a single pass,
+    extracting all requested channels per time-window slice in one loop.
+    """
+    results: dict = {}
+    if not requests:
+        return results
 
-        for req in group_reqs:
-            card_id = str(req.get("index", ""))
-            ch = str(req.get("channel", ""))
-            max_b = int(req.get("maxBuckets", 300))
-            f3std = bool(req.get("filterOutliers3Std", False))
-            smooth = int(req.get("smoothingWindow", 1))
-            if not ch:
-                results[card_id] = _empty_series_result(w_start, w_end)
-            else:
-                t_vals, v_vals = channel_arrays[ch]
-                results[card_id] = _series_from_channel_arrays(
-                    t_vals, v_vals, w_start, w_end, max_b, f3std, smooth
-                )
+    for w_start, w_end, i_left, i_right, group_reqs in _group_requests_by_window(
+        records, seconds_list, requests
+    ):
+        _evaluate_window_group(
+            records, w_start, w_end, i_left, i_right, group_reqs, results
+        )
 
     return results

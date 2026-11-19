@@ -88,7 +88,8 @@ CMakeLists.txt.user*
 # Distribution and build outputs
 /dist/
 /build/
-*.AppImage
+*.[Aa]pp[Ii]mage
+FlowControl_startup.log
 *.dmg
 *.zip
 .tools/
