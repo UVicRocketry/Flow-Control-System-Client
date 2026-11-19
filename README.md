@@ -23,53 +23,81 @@ The UI utilizes KDE's **Kirigami** framework (`org.kde.kirigami`) and Qt Quick C
 
 - **Ubuntu / Debian / WSL**:
   ```sh
-  sudo apt-get install -y --no-install-recommends \
-            libgl1-mesa-dev libxkbcommon-x11-0 \
-            libfontconfig1 libdbus-1-3 \
-            kf6-kirigami \
-            kf6-qqc2-desktop-style \
-            kf6-kiconthemes \
-            kf6-kcoreaddons \
-            kf6-ki18n \
-            qml6-module-qtquick-controls \
-            qml6-module-qtquick-layouts \
-            qml6-module-qtquick-templates \
-            qml6-module-qtquick-shapes \
-            qml6-module-qtwebsockets \
-            libqt6websockets6-dev
+  sudo apt-get install -y \
+    python3 python3-pip \
+    qml6-module-org-kde-kirigami \
+    qml6-module-org-kde-qqc2desktopstyle \
+    qml6-module-qtquick-controls \
+    qml6-module-qtquick-layouts \
+    qml6-module-qtquick-templates \
+    qml6-module-qtquick-shapes \
+    qml6-module-qtwebsockets \
+    qml6-module-qtmultimedia \
+    libqt6multimedia6 \
+    qt6-wayland
   ```
-  
+
 - **Arch Linux**:
   ```sh
-  sudo pacman -S python python-pyside6 kirigami qt6-declarative qt6-quickcontrols2 qt6-svg qt6-multimedia qt6-wayland qt6-websockets
-  ```  
+  sudo pacman -S --needed \
+    python \
+    pyside6 \
+    kirigami \
+    qqc2-desktop-style \
+    kiconthemes \
+    kcoreaddons \
+    ki18n \
+    qt6-base \
+    qt6-declarative \
+    qt6-svg \
+    qt6-wayland \
+    qt6-websockets \
+    qt6-multimedia \
+    qt6-multimedia-ffmpeg \
+    qt6-shadertools
+  ```
 
 - **Fedora**:
   ```sh
   sudo dnf install \
     python3-pyside6 \
     kf6-kirigami \
+    kf6-qqc2-desktop-style \
+    kf6-kiconthemes \
+    kf6-kcoreaddons \
+    kf6-ki18n \
     qt6-qtdeclarative \
-    qt6-qtquickcontrols2 \
     qt6-qtsvg \
+    qt6-qtwayland \
+    qt6-qtwebsockets \
     qt6-qtmultimedia \
-    qt6-qtwayland
+    qt6-qtshadertools
   ```
-  
-- **Windows**
 
-   To run or develop natively on Windows, install Kirigami and the KDE desktop style via **KDE Craft** as outlined in their [developer docs](https://develop.kde.org/docs/getting-started/kirigami/platforms-windows/):
+- **Windows (MSYS2 UCRT64)**:
 
-   ```powershell
-   # 1. Install KDE Craft
-   iex ((new-object net.webclient).DownloadString('https://invent.kde.org/packaging/craft/-/raw/master/setup/install_craft.ps1'))
+  Install [MSYS2](https://www.msys2.org/) and open the **MSYS2 UCRT64** shell, then install the required packages:
 
-   # 2. In your Craft environment, install Kirigami and desktop styling
-   craft kirigami kcoreaddons ki18n breeze breeze-icons kiconthemes qqc2-desktop-style
-   ```
-   
+  ```sh
+  pacman -S --needed \
+    mingw-w64-ucrt-x86_64-python \
+    mingw-w64-ucrt-x86_64-python-pip \
+    mingw-w64-ucrt-x86_64-pyside6 \
+    mingw-w64-ucrt-x86_64-kirigami \
+    mingw-w64-ucrt-x86_64-qqc2-desktop-style \
+    mingw-w64-ucrt-x86_64-breeze \
+    mingw-w64-ucrt-x86_64-breeze-icons \
+    mingw-w64-ucrt-x86_64-kcoreaddons \
+    mingw-w64-ucrt-x86_64-ki18n \
+    mingw-w64-ucrt-x86_64-kiconthemes \
+    mingw-w64-ucrt-x86_64-qt6-websockets \
+    mingw-w64-ucrt-x86_64-qt6-multimedia
+  ```
+
+  Run the client from the same **MSYS2 UCRT64** shell (`python contents/code/main.py`). To build the Windows package locally, also install `mingw-w64-ucrt-x86_64-pyinstaller` and `mingw-w64-ucrt-x86_64-python-pillow`.
+
 #### 2. Python packages
-Install via `pip`:
+If you are not using your system or MSYS2 `pyside6` package (e.g., on Ubuntu/Debian or inside a standalone virtualenv), install via `pip`:
 ```sh
 pip install -r requirements.txt
 ```
