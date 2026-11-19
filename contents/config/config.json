@@ -4,11 +4,18 @@
         "auto_reconnect": false,
         "reconnect_interval_ms": 2000
     },
+    "camera": {
+        "mode": "auto",
+        "profile": "udp_high",
+        "manual_target": "192.168.0.108",
+        "username": "admin",
+        "password": ""
+    },
     "external_data": [],
     "ui": {
         "view_refresh_hz": 60,
         "split_active": false,
-        "left_page": "dashboard",
+        "left_page": "video",
         "right_page": "",
         "last_right_page": "",
         "focused_pane": "left",

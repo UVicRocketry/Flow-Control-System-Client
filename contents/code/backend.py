@@ -5,11 +5,20 @@ provides QObject bridge between PySide6/QML and config/telemetry helpers.
 """
 
 import json
+import os
 import sys
+import threading
 import time
 from pathlib import Path
+from urllib.parse import quote
+from urllib.request import (
+    HTTPDigestAuthHandler,
+    HTTPPasswordMgrWithDefaultRealm,
+    build_opener,
+)
 
 from PySide6 import QtCore
+from PySide6.QtNetwork import QNetworkInterface
 from PySide6.QtWidgets import QFileDialog
 from __feature__ import snake_case, true_property
 
@@ -66,9 +75,7 @@ class _FileParseWorker(QtCore.QRunnable):
 
     def run(self):
         try:
-            records, seconds_list, cols = parse_telemetry_file(
-                self.resolved_path
-            )
+            records, seconds_list, cols = parse_telemetry_file(self.resolved_path)
             self.signals.finished.emit(
                 self.mode,
                 self.target,
@@ -111,10 +118,14 @@ class Backend(QtCore.QObject):
     recording_changed = QtCore.Signal(bool)
     server_recording_active_on_connect = QtCore.Signal(str)
     view_refresh_hz_changed = QtCore.Signal(int)
+    camera_config_changed = QtCore.Signal()
+    camera_active_changed = QtCore.Signal(bool)
+    camera_toggle_requested = QtCore.Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._config_data = {}
+        self._camera_active = False
         self._armed = False
         self._ws_connected = False
         self._recording = False
@@ -137,9 +148,7 @@ class Backend(QtCore.QObject):
         self._last_telemetry_emit_ts = 0.0
         self._telemetry_ui_timer = QtCore.QTimer(self)
         self._telemetry_ui_timer.single_shot = True
-        self._telemetry_ui_timer.timeout.connect(
-            self._flush_telemetry_ui_update
-        )
+        self._telemetry_ui_timer.timeout.connect(self._flush_telemetry_ui_update)
         self.load_graphs_config()
         self._latest_telemetry = {
             "seconds": 0.0,
@@ -292,7 +301,9 @@ class Backend(QtCore.QObject):
         """loads configuration from CONFIG_FILE via config_manager."""
         self._config_data = read_app_config(self.log_error)
         self._seed_valves_from_config()
+        self._apply_camera_transport()
         self.config_changed.emit()
+        self.camera_config_changed.emit()
         self.server_url_changed.emit(self.server_url)
         self.auto_reconnect_changed.emit(self.auto_reconnect)
         self.reconnect_interval_ms_changed.emit(self.reconnect_interval_ms)
@@ -397,6 +408,164 @@ class Backend(QtCore.QObject):
     def show_in_file_browser(self, url: str):
         reveal_in_file_browser(url, self.log_info, self.log_warn)
 
+    # IP camera configuration & auto link detection
+
+    def _cam_cfg(self) -> dict:
+        cam = self._config_data.get("camera")
+        return cam if isinstance(cam, dict) else {}
+
+    def _detect_camera_link(self) -> tuple[str, bool]:
+        """Auto-detects active Ethernet vs. Wireless interface and target camera IP."""
+        Flag = QNetworkInterface.InterfaceFlag
+        IType = QNetworkInterface.InterfaceType
+        eth_ip = ""
+        for iface in QNetworkInterface.all_interfaces():
+            flags = iface.flags()
+            if (
+                not (flags & Flag.IsUp)
+                or not (flags & Flag.IsRunning)
+                or (flags & Flag.IsLoopBack)
+            ):
+                continue
+            ips = [
+                e.ip().to_string()
+                for e in iface.address_entries()
+                if "." in e.ip().to_string()
+            ]
+            if iface.type() == IType.Ethernet and ips:
+                eth_ip = ips[0]
+                if any(ip.startswith("192.168.1.") for ip in ips):
+                    return "192.168.1.108", True
+        return "192.168.0.108", bool(eth_ip)
+
+    def _apply_camera_transport(self):
+        os.environ["QT_FFMPEG_RTSP_TRANSPORT"] = (
+            "udp" if self.camera_profile == "udp_high" else "tcp"
+        )
+
+    def _enforce_camera_h264(self, host: str):
+        """Configures Amcrest main & sub streams to H.264 in background for minimal latency."""
+        user, pwd = self.camera_username, self.camera_password
+        if not host or not user:
+            return
+
+        def _worker():
+            try:
+                mgr = HTTPPasswordMgrWithDefaultRealm()
+                url = (
+                    f"http://{host}/cgi-bin/configManager.cgi?action=setConfig"
+                    "&Encode[0].MainFormat[0].Video.Compression=H.264"
+                    "&Encode[0].ExtraFormat[0].Video.Compression=H.264"
+                )
+                mgr.add_password(None, url, user, pwd)
+                opener = build_opener(HTTPDigestAuthHandler(mgr))
+                opener.open(url, timeout=2.0).read()
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    @QtCore.Property(str, notify=camera_config_changed)
+    def camera_mode(self) -> str:
+        return "manual" if self._cam_cfg().get("mode") == "manual" else "auto"
+
+    @QtCore.Property(str, notify=camera_config_changed)
+    def camera_profile(self) -> str:
+        return "udp_high" if self._cam_cfg().get("profile") == "udp_high" else "tcp_low"
+
+    @QtCore.Property(str, notify=camera_config_changed)
+    def camera_manual_target(self) -> str:
+        return str(self._cam_cfg().get("manual_target", "192.168.0.108")).strip()
+
+    @QtCore.Property(str, notify=camera_config_changed)
+    def camera_username(self) -> str:
+        return str(self._cam_cfg().get("username", "admin")).strip()
+
+    @QtCore.Property(str, notify=camera_config_changed)
+    def camera_password(self) -> str:
+        return str(self._cam_cfg().get("password", ""))
+
+    @QtCore.Property(str, notify=camera_config_changed)
+    def camera_rtsp_url(self) -> str:
+        self._apply_camera_transport()
+        target = (
+            self.camera_manual_target
+            if self.camera_mode == "manual"
+            else self._detect_camera_link()[0]
+        )
+        if target.startswith(("rtsp://", "http://", "https://", "file://")):
+            return target
+        host = target or "192.168.0.108"
+        self._enforce_camera_h264(host.split(":")[0])
+        port = 554
+        if ":" in host:
+            host, port_s = host.rsplit(":", 1)
+            port = int(port_s) if port_s.isdigit() else 554
+        subtype = 0 if self.camera_profile == "udp_high" else 1
+        user, pwd = self.camera_username, self.camera_password
+        auth = (
+            f"{quote(user, safe='')}:{quote(pwd, safe='')}@"
+            if (user and pwd)
+            else (f"{quote(user, safe='')}@" if user else "")
+        )
+        return f"rtsp://{auth}{host}:{port}/cam/realmonitor?channel=1&subtype={subtype}"
+
+    @QtCore.Slot(str, str, str)
+    def set_camera_settings(self, mode: str, profile: str, manual_target: str):
+        cam = dict(self._cam_cfg())
+        new_mode = "manual" if mode == "manual" else "auto"
+        new_prof = "udp_high" if profile == "udp_high" else "tcp_low"
+        if (
+            new_mode == "auto"
+            and cam.get("mode") != "auto"
+            and profile == cam.get("profile")
+        ):
+            _, is_eth = self._detect_camera_link()
+            new_prof = "udp_high" if is_eth else "tcp_low"
+        cam.update(
+            {
+                "mode": new_mode,
+                "profile": new_prof,
+                "manual_target": manual_target.strip() or "192.168.0.108",
+            }
+        )
+        self._config_data["camera"] = cam
+        self._apply_camera_transport()
+        self.save_config(self._config_data)
+        self.camera_config_changed.emit()
+
+    @QtCore.Property(bool, notify=camera_active_changed)
+    def camera_active(self) -> bool:
+        return self._camera_active
+
+    @QtCore.Slot(bool)
+    def set_camera_active(self, active: bool):
+        active = bool(active)
+        if self._camera_active != active:
+            self._camera_active = active
+            self.camera_active_changed.emit(active)
+
+    @QtCore.Slot()
+    def toggle_camera(self):
+        self.camera_toggle_requested.emit()
+
+    @QtCore.Slot(str, str)
+    def set_camera_credentials(self, username: str, password: str):
+        cam = dict(self._cam_cfg())
+        cam["username"] = username.strip()
+        cam["password"] = password
+        self._config_data["camera"] = cam
+        self.save_config(self._config_data)
+        self.camera_config_changed.emit()
+
+    @QtCore.Slot(str)
+    def set_camera_manual_target(self, target: str):
+        cam = dict(self._cam_cfg())
+        cam["manual_target"] = target.strip() or "192.168.0.108"
+        self._config_data["camera"] = cam
+        self.save_config(self._config_data)
+        self.camera_config_changed.emit()
+
     # telemetry & graphs configuration
 
     @QtCore.Slot()
@@ -437,9 +606,7 @@ class Backend(QtCore.QObject):
         if not isinstance(cards, list):
             return False
         normalized = [
-            self._normalize_graph_card(dict(c))
-            for c in cards
-            if isinstance(c, dict)
+            self._normalize_graph_card(dict(c)) for c in cards if isinstance(c, dict)
         ]
         self._default_graph_cards = normalized
         return write_graphs_config(
@@ -501,9 +668,7 @@ class Backend(QtCore.QObject):
         ts = time.strftime("%Y_%m_%d_%H%M%S")
         dest_path = CONFIG_DIR / "data" / f"telemetry_{ts}.csv"
         try:
-            self._record_columns = init_recording_csv(
-                dest_path, self._known_channels
-            )
+            self._record_columns = init_recording_csv(dest_path, self._known_channels)
         except Exception as err:
             self.log_error(f"Failed to start local telemetry recording: {err}")
             return
@@ -527,9 +692,7 @@ class Backend(QtCore.QObject):
 
     def _stop_recording(self):
         fname = (
-            self._record_file_path.name
-            if self._record_file_path
-            else "telemetry.csv"
+            self._record_file_path.name if self._record_file_path else "telemetry.csv"
         )
         count = self._record_sample_count
         self._recording = False
@@ -573,9 +736,7 @@ class Backend(QtCore.QObject):
         return aliases.get(s, s)
 
     def _seed_valves_from_config(self):
-        defs = self._config_data.get("actuators") or self._config_data.get(
-            "valves"
-        )
+        defs = self._config_data.get("actuators") or self._config_data.get("valves")
         if isinstance(defs, list) and defs:
             self._apply_actuator_definitions(defs)
 
@@ -589,9 +750,7 @@ class Backend(QtCore.QObject):
         seeded = {}
         for item in valid_defs:
             vid = item["id"]
-            default_st = self._normalize_valve_state(
-                item.get("normal_state", "CLOSED")
-            )
+            default_st = self._normalize_valve_state(item.get("normal_state", "CLOSED"))
             seeded[vid] = self._valves.get(vid, default_st)
         self._valves = seeded
         self.config_changed.emit()
@@ -648,9 +807,7 @@ class Backend(QtCore.QObject):
             self.set_armed(False)
             if self._recording:
                 self._stop_recording()
-                self.log_warn(
-                    "Server went offline; telemetry recording stopped."
-                )
+                self.log_warn("Server went offline; telemetry recording stopped.")
             if was_connected:
                 self.disconnected.emit()
                 self.websocket_closed.emit()
@@ -735,9 +892,7 @@ class Backend(QtCore.QObject):
             self.log_warn("No local file selected to push.")
             return
         if not self._ws_connected:
-            self.log_warn(
-                "Cannot push data: not connected to the valve cart server."
-            )
+            self.log_warn("Cannot push data: not connected to the valve cart server.")
             return
 
         try:
@@ -753,13 +908,9 @@ class Backend(QtCore.QObject):
             return
 
         try:
-            content = resolved_path.read_text(
-                encoding="utf-8", errors="replace"
-            )
+            content = resolved_path.read_text(encoding="utf-8", errors="replace")
         except Exception as err:
-            self.log_error(
-                f'Failed to read "{resolved_path.name}" for upload: {err}'
-            )
+            self.log_error(f'Failed to read "{resolved_path.name}" for upload: {err}')
             return
 
         payload = {
@@ -798,13 +949,10 @@ class Backend(QtCore.QObject):
             }
             self.ws_send_requested.emit(json.dumps(payload))
             self._remote_data = [
-                new_clean if item == old_name else item
-                for item in self._remote_data
+                new_clean if item == old_name else item for item in self._remote_data
             ]
             self.remote_data_changed.emit()
-            self.log_info(
-                f'Requested remote rename "{old_name}" -> "{new_clean}".'
-            )
+            self.log_info(f'Requested remote rename "{old_name}" -> "{new_clean}".')
             return True
 
         try:
@@ -812,10 +960,7 @@ class Backend(QtCore.QObject):
             if mode == "local":
                 self.refresh_local_data()
             elif mode == "external":
-                updated = [
-                    str(dst) if p == old_name else p
-                    for p in self.external_data
-                ]
+                updated = [str(dst) if p == old_name else p for p in self.external_data]
                 self._set_external_data_list(updated)
             self.log_info(f'Renamed "{Path(old_name).name}" to "{dst.name}".')
             return True
@@ -863,9 +1008,7 @@ class Backend(QtCore.QObject):
     def actuate_valve(self, valve_id: str, action: str):
         """Validates armed/interlock state and emits an outbound command."""
         if not self._armed:
-            self.log_warn(
-                f"Cannot actuate {valve_id}: system is SAFE (disarmed)."
-            )
+            self.log_warn(f"Cannot actuate {valve_id}: system is SAFE (disarmed).")
             return
 
         vdef = self._get_valve_def(valve_id)
@@ -878,9 +1021,7 @@ class Backend(QtCore.QObject):
             "FIRED",
             "DISCONNECTED",
         ):
-            self.log_warn(
-                f"{valve_id} is single-use and already {current}."
-            )
+            self.log_warn(f"{valve_id} is single-use and already {current}.")
             return
 
         act = str(action).strip().upper()
@@ -927,9 +1068,7 @@ class Backend(QtCore.QObject):
             and not self._prompted_server_recording
         ):
             self._prompted_server_recording = True
-            rec_name = str(
-                msg.get("recording_filename") or msg.get("active_log") or ""
-            )
+            rec_name = str(msg.get("recording_filename") or msg.get("active_log") or "")
             self.server_recording_active_on_connect.emit(rec_name)
 
     def _handle_valve_state_msg(self, msg: dict):
@@ -996,9 +1135,7 @@ class Backend(QtCore.QObject):
             if req_mode == "load":
                 self._load_resolved_file("remote", fname, dest_path)
             elif req_mode == "pull_recording":
-                self._apply_pulled_recording_file(
-                    fname, dest_path, overwrote=overwrote
-                )
+                self._apply_pulled_recording_file(fname, dest_path, overwrote=overwrote)
             else:
                 self.log_info(f'Downloaded "{fname}" to local data.')
         except Exception as err:
@@ -1019,9 +1156,7 @@ class Backend(QtCore.QObject):
             "armed": lambda m: self.set_armed(bool(m.get("armed", False))),
             "remote_data_list": self._handle_remote_data_list_msg,
             "remote_data_content": self._handle_remote_data_content_msg,
-            "alert": lambda m: self.log(
-                m.get("level", "WARN"), m.get("message", "")
-            ),
+            "alert": lambda m: self.log(m.get("level", "WARN"), m.get("message", "")),
         }
         handler = handlers.get(msg_type)
         if handler is not None:
@@ -1146,16 +1281,12 @@ class Backend(QtCore.QObject):
             mode, target, resolved_str, records, seconds_list, cols
         )
 
-    def _on_worker_failed(
-        self, worker: _FileParseWorker, target: str, err_msg: str
-    ):
+    def _on_worker_failed(self, worker: _FileParseWorker, target: str, err_msg: str):
         if worker in self._active_workers:
             self._active_workers.remove(worker)
         self.log_error(f'Failed to parse data file "{target}": {err_msg}')
 
-    def _load_resolved_file(
-        self, mode: str, target: str, resolved_path: Path
-    ) -> dict:
+    def _load_resolved_file(self, mode: str, target: str, resolved_path: Path) -> dict:
         try:
             file_size = resolved_path.stat().st_size
         except OSError:
@@ -1167,8 +1298,8 @@ class Backend(QtCore.QObject):
             worker = _FileParseWorker(mode, target, resolved_path)
             self._active_workers.append(worker)
             worker.signals.finished.connect(
-                lambda m, t, r, rec, sec, cols, w=worker: (
-                    self._on_worker_finished(w, m, t, r, rec, sec, cols)
+                lambda m, t, r, rec, sec, cols, w=worker: self._on_worker_finished(
+                    w, m, t, r, rec, sec, cols
                 )
             )
             worker.signals.failed.connect(
@@ -1241,9 +1372,7 @@ class Backend(QtCore.QObject):
         # use loaded file records in history mode, and live records in live
         use_loaded = source_mode != "live"
         records = self._loaded_records if use_loaded else self._live_records
-        seconds_list = (
-            self._loaded_seconds if use_loaded else self._live_seconds
-        )
+        seconds_list = self._loaded_seconds if use_loaded else self._live_seconds
 
         return query_channel_series(
             records=records,
@@ -1257,15 +1386,11 @@ class Backend(QtCore.QObject):
         )
 
     @QtCore.Slot(str, "QVariantList", result="QVariantMap")
-    def get_batch_channel_data(
-        self, source_mode: str, requests: list
-    ) -> dict:
+    def get_batch_channel_data(self, source_mode: str, requests: list) -> dict:
         """returns windowed series for all GraphCards in one batched call."""
         use_loaded = source_mode != "live"
         records = self._loaded_records if use_loaded else self._live_records
-        seconds_list = (
-            self._loaded_seconds if use_loaded else self._live_seconds
-        )
+        seconds_list = self._loaded_seconds if use_loaded else self._live_seconds
         return query_batch_channels(records, seconds_list, requests)
 
     @QtCore.Slot(str, result=str)

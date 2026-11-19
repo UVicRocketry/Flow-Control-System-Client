@@ -215,7 +215,6 @@ hidden_imports = [
     "config_manager",
     "telemetry_files",
     "telemetry_series",
-    "video_stream",
     "splash",
     "PySide6",
     "PySide6.QtCore",

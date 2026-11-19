@@ -112,6 +112,10 @@ ColumnLayout {
                 }
             }
 
+            VideoViewHelper {
+                visible: root.isPageVisible("video")
+            }
+
         }
 
     }

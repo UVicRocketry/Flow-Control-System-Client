@@ -16,7 +16,8 @@ Kirigami.Dialog {
     signal autoConnectToggled(bool enabled)
 
     title: "Settings"
-    preferredWidth: Kirigami.Units.gridUnit * 24
+    preferredWidth: Kirigami.Units.gridUnit * 26
+    maximumHeight: parent ? Math.max(Kirigami.Units.gridUnit * 16, parent.height - Kirigami.Units.gridUnit * 4) : Kirigami.Units.gridUnit * 26
     padding: Kirigami.Units.largeSpacing
     standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
     onOpened: {
@@ -28,6 +29,9 @@ Kirigami.Dialog {
         var currentHz = root.hasBackend ? backend.view_refresh_hz : 20;
         var hzIdx = root.refreshHzValues.indexOf(currentHz);
         refreshHzCombo.currentIndex = hzIdx >= 0 ? hzIdx : 2;
+        camManualTargetField.text = root.hasBackend ? backend.camera_manual_target : "192.168.0.108";
+        camUserField.text = root.hasBackend ? backend.camera_username : "admin";
+        camPassField.text = root.hasBackend ? backend.camera_password : "";
     }
     onAccepted: {
         if (logLevelCombo.currentIndex >= 0 && logLevelCombo.currentIndex < root.logLevels.length)
@@ -42,6 +46,8 @@ Kirigami.Dialog {
             if (refreshHzCombo.currentIndex >= 0 && refreshHzCombo.currentIndex < root.refreshHzValues.length)
                 backend.set_view_refresh_hz(root.refreshHzValues[refreshHzCombo.currentIndex]);
 
+            backend.set_camera_manual_target(camManualTargetField.text);
+            backend.set_camera_credentials(camUserField.text.trim(), camPassField.text);
         }
         root.autoConnectToggled(autoConnectCheck.checked);
     }
@@ -90,6 +96,37 @@ Kirigami.Dialog {
             to: 60000
             stepSize: 500
             editable: true
+        }
+
+        Kirigami.Separator {
+            Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: "IP Camera"
+        }
+
+        Controls.TextField {
+            id: camManualTargetField
+
+            Kirigami.FormData.label: "Manual IP / RTSP URL:"
+            Layout.fillWidth: true
+            font.family: "monospace"
+            placeholderText: "192.168.0.108 or rtsp://..."
+        }
+
+        Controls.TextField {
+            id: camUserField
+
+            Kirigami.FormData.label: "Camera Username:"
+            Layout.fillWidth: true
+            placeholderText: "admin"
+        }
+
+        Controls.TextField {
+            id: camPassField
+
+            Kirigami.FormData.label: "Camera Password:"
+            Layout.fillWidth: true
+            echoMode: TextInput.Password
+            placeholderText: "Amcrest password"
         }
 
         Kirigami.Separator {
