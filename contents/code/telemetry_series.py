@@ -13,49 +13,219 @@ import time
 from telemetry_files import extract_flat_values
 
 
-def register_channel_if_missing(known_channels: dict, key: str) -> bool:
+UNIT_ALIASES: dict[str, str] = {
+    "kpa": "kPa",
+    "psi": "psi",
+    "psig": "psi",
+    "psia": "psi",
+    "kg": "kg",
+    "kilogram": "kg",
+    "kilograms": "kg",
+    "lb": "lbs",
+    "lbs": "lbs",
+    "pound": "lbs",
+    "pounds": "lbs",
+    "n": "N",
+    "newton": "N",
+    "newtons": "N",
+    "lbf": "lbf",
+    "c": "°C",
+    "°c": "°C",
+    "degc": "°C",
+    "f": "°F",
+    "°f": "°F",
+    "degf": "°F",
+    "k": "K",
+    "kelvin": "K",
+}
+
+CATEGORY_UNITS: dict[str, list[str]] = {
+    "pressure": ["kPa", "psi"],
+    "mass": ["kg", "lbs"],
+    "force": ["N", "lbf"],
+    "temperature": ["°C", "°F", "K"],
+}
+
+UNIT_TO_CATEGORY: dict[str, str] = {
+    "kPa": "pressure",
+    "psi": "pressure",
+    "kg": "mass",
+    "lbs": "mass",
+    "N": "force",
+    "lbf": "force",
+    "°C": "temperature",
+    "°F": "temperature",
+    "K": "temperature",
+}
+
+_PSI_TO_KPA = 6.8947572932
+_KG_TO_LBS = 2.20462262185
+_LBS_TO_KG = 0.45359237
+_N_TO_LBF = 0.2248089431
+_LBF_TO_N = 4.4482216153
+_G0 = 9.80665
+
+_UNIT_CONVERSION_TABLE: dict[tuple[str, str], tuple[float, float]] = {
+    ("kPa", "psi"): (1.0 / _PSI_TO_KPA, 0.0),
+    ("psi", "kPa"): (_PSI_TO_KPA, 0.0),
+    ("kg", "lbs"): (_KG_TO_LBS, 0.0),
+    ("kg", "lbf"): (_KG_TO_LBS, 0.0),
+    ("lbs", "kg"): (_LBS_TO_KG, 0.0),
+    ("lbf", "kg"): (_LBS_TO_KG, 0.0),
+    ("lbf", "lbs"): (1.0, 0.0),
+    ("lbs", "lbf"): (1.0, 0.0),
+    ("N", "lbf"): (_N_TO_LBF, 0.0),
+    ("N", "lbs"): (_N_TO_LBF, 0.0),
+    ("lbf", "N"): (_LBF_TO_N, 0.0),
+    ("lbs", "N"): (_LBF_TO_N, 0.0),
+    ("N", "kg"): (1.0 / _G0, 0.0),
+    ("kg", "N"): (_G0, 0.0),
+    ("°C", "°F"): (1.8, 32.0),
+    ("°F", "°C"): (1.0 / 1.8, -32.0 / 1.8),
+    ("°C", "K"): (1.0, 273.15),
+    ("K", "°C"): (1.0, -273.15),
+    ("°F", "K"): (1.0 / 1.8, -32.0 / 1.8 + 273.15),
+    ("K", "°F"): (1.8, -273.15 * 1.8 + 32.0),
+}
+
+
+def normalize_unit(unit: str | None) -> str:
+    """returns canonical display unit string for known unit aliases."""
+    raw = str(unit or "").strip()
+    if not raw:
+        return ""
+    return UNIT_ALIASES.get(raw.lower(), raw)
+
+
+def infer_channel_category(channel: str, csv_unit: str | None = None) -> str:
     """
-    registers a newly discovered channel key with default unit and theme colour
-    inferred from its prefix (P_ -> kPa, T_ -> °C, L_ -> N).
+    infers the physical data category ('pressure', 'mass', 'force',
+    'temperature') prioritizing csv_unit when present for legacy CSVs.
+    """
+    ch = str(channel or "").strip().upper()
+    norm_csv = normalize_unit(csv_unit)
+    if norm_csv:
+        if (ch in ("M_RUN_TANK", "L_RUN_TANK") or "MASS" in ch) and norm_csv in (
+            "kg",
+            "lbs",
+            "lbf",
+        ):
+            return "mass"
+        if norm_csv in UNIT_TO_CATEGORY:
+            return UNIT_TO_CATEGORY[norm_csv]
+
+    if ch.startswith("M_") or ch == "L_RUN_TANK" or "MASS" in ch:
+        return "mass"
+    if ch.startswith("P_"):
+        return "pressure"
+    if ch.startswith("T_"):
+        return "temperature"
+    if ch.startswith("L_"):
+        return "force"
+    return "pressure"
+
+
+def allowed_units_for_channel(channel: str, csv_unit: str | None = None) -> list[str]:
+    """returns valid dropdown units for the channel's physical data type."""
+    category = infer_channel_category(channel, csv_unit)
+    return list(CATEGORY_UNITS[category])
+
+
+def default_unit_for_channel(channel: str, csv_unit: str | None = None) -> str:
+    """returns the primary SI/standard unit for a channel's data type."""
+    return allowed_units_for_channel(channel, csv_unit)[0]
+
+
+def coerce_allowed_unit(
+    channel: str, requested_unit: str | None, csv_unit: str | None = None
+) -> str:
+    """normalizes requested_unit and keeps it if valid for this channel."""
+    allowed = allowed_units_for_channel(channel, csv_unit)
+    norm = normalize_unit(requested_unit)
+    if norm in allowed:
+        return norm
+    return allowed[0]
+
+
+def get_unit_conversion_factors(
+    source_unit: str | None, target_unit: str | None
+) -> tuple[float, float]:
+    """returns (scale, offset) so v_target = scale * v_source + offset."""
+    src = normalize_unit(source_unit)
+    dst = normalize_unit(target_unit)
+    if not src or not dst or src == dst:
+        return 1.0, 0.0
+    return _UNIT_CONVERSION_TABLE.get((src, dst), (1.0, 0.0))
+
+
+def apply_unit_conversion_to_series(
+    series: dict, source_unit: str | None, target_unit: str | None
+) -> dict:
+    """transforms bucketed series points and stats from source_unit to target_unit."""
+    if not series or series.get("rawCount", 0) == 0:
+        return series
+    scale, offset = get_unit_conversion_factors(source_unit, target_unit)
+    if scale == 1.0 and offset == 0.0:
+        return series
+
+    series["vs"] = [scale * x + offset for x in series.get("vs", [])]
+    series["minVs"] = [scale * x + offset for x in series.get("minVs", [])]
+    series["maxVs"] = [scale * x + offset for x in series.get("maxVs", [])]
+    series["min"] = scale * float(series.get("min", 0.0)) + offset
+    series["max"] = scale * float(series.get("max", 0.0)) + offset
+    series["mean"] = scale * float(series.get("mean", 0.0)) + offset
+    series["latest"] = scale * float(series.get("latest", 0.0)) + offset
+    series["std"] = abs(scale) * float(series.get("std", 0.0))
+    return series
+
+
+def register_channel_if_missing(
+    known_channels: dict, key: str, csv_unit: str | None = None
+) -> bool:
+    """
+    registers a newly discovered channel key with default unit and theme colour.
     returns True if a new channel was added.
     """
     if not key or key in known_channels:
         return False
-    unit = (
-        "kPa"
-        if key.startswith("P_")
-        else (
-            "°C" if key.startswith("T_")
-            else ("N" if key.startswith("L_") else "")
-        )
-    )
+    category = infer_channel_category(key, csv_unit)
     color = (
         "theme:highlight"
-        if key.startswith("P_")
-        else ("theme:neutral" if key.startswith("T_") else "theme:positive")
+        if category == "pressure"
+        else ("theme:neutral" if category == "temperature" else "theme:positive")
     )
     known_channels[key] = {
         "title": key.replace("_", " ").title(),
-        "unit": unit,
+        "unit": default_unit_for_channel(key, csv_unit),
         "color": color,
     }
     return True
 
 
-def format_channel_meta(known_channels: dict, channel: str) -> dict:
-    """returns normalized metadata dictionary for a single channel key."""
+def format_channel_meta(
+    known_channels: dict, channel: str, csv_units: dict | None = None
+) -> dict:
+    """returns normalized metadata dictionary including allowed_units."""
     meta = known_channels.get(channel, {})
+    csv_u = (csv_units or {}).get(channel)
+    allowed = allowed_units_for_channel(channel, csv_u)
+    unit = coerce_allowed_unit(channel, meta.get("unit"), csv_u)
     return {
         "key": channel,
         "title": meta.get("title", channel),
-        "unit": meta.get("unit", ""),
+        "unit": unit,
+        "allowed_units": allowed,
         "color": meta.get("color", "theme:highlight"),
     }
 
 
-def list_available_channels(known_channels: dict) -> list:
+def list_available_channels(
+    known_channels: dict, csv_units: dict | None = None
+) -> list:
     """returns a list of channel metadata dictionaries for QML combo boxes."""
-    return [format_channel_meta(known_channels, key) for key in known_channels]
+    return [
+        format_channel_meta(known_channels, key, csv_units) for key in known_channels
+    ]
 
 
 def _extract_ws_seconds(data_obj: dict) -> float:
@@ -120,7 +290,9 @@ def ingest_ws_telemetry_frames(
     if isinstance(raw_message, list):
         parsed_items = (_parse_ws_telemetry_obj(obj) for obj in raw_message)
     else:
-        parsed_items = (_parse_ws_telemetry_line(line) for line in raw_message.splitlines())
+        parsed_items = (
+            _parse_ws_telemetry_line(line) for line in raw_message.splitlines()
+        )
 
     for parsed in parsed_items:
         if parsed is None:
@@ -392,7 +564,9 @@ def _series_from_channel_arrays(
         else None
     )
     if filtered is not None:
-        buckets, clean_min, clean_max, clean_mean, std_v, latest_v, filtered_n = filtered
+        buckets, clean_min, clean_max, clean_mean, std_v, latest_v, filtered_n = (
+            filtered
+        )
     else:
         buckets, clean_min, clean_max, clean_mean, std_v, latest_v = (
             _bucket_all_samples(t_vals, v_vals, inv_bucket_size)
@@ -420,6 +594,17 @@ def _series_from_channel_arrays(
     }
 
 
+def _resolve_record_value(values: dict, channel: str):
+    val = values.get(channel)
+    if val is not None:
+        return val
+    if channel == "M_RUN_TANK":
+        return values.get("L_RUN_TANK")
+    if channel == "L_RUN_TANK":
+        return values.get("M_RUN_TANK")
+    return None
+
+
 def query_channel_series(
     records: list,
     seconds_list: list,
@@ -429,10 +614,13 @@ def query_channel_series(
     max_buckets: int = 300,
     filter_outliers_3std: bool = False,
     smoothing_window: int = 1,
+    source_unit: str | None = None,
+    target_unit: str | None = None,
 ) -> dict:
     """
     computes windowed, optionally 3-std outlier-filtered, fixed-timespan
-    bucketed, and moving-average smoothed time-series points for a channel.
+    bucketed, and moving-average smoothed time-series points for a channel,
+    converting from source_unit to target_unit when specified.
     """
     win_start, win_end = _compute_window_bounds(seconds_list, t_start, t_end)
     if not records or not seconds_list or not channel:
@@ -444,12 +632,12 @@ def query_channel_series(
     v_vals: list[float] = []
     for idx in range(idx_left, idx_right):
         r = records[idx]
-        v = r["values"].get(channel)
+        v = _resolve_record_value(r["values"], channel)
         if v is not None:
             t_vals.append(r["t"])
             v_vals.append(float(v))
 
-    return _series_from_channel_arrays(
+    series = _series_from_channel_arrays(
         t_vals,
         v_vals,
         win_start,
@@ -458,6 +646,7 @@ def query_channel_series(
         filter_outliers_3std,
         smoothing_window,
     )
+    return apply_unit_conversion_to_series(series, source_unit, target_unit)
 
 
 def _group_requests_by_window(
@@ -473,9 +662,7 @@ def _group_requests_by_window(
         bounds_key = (t_start, t_end)
         group = bounds_groups.get(bounds_key)
         if group is None:
-            w_start, w_end = _compute_window_bounds(
-                seconds_list, t_start, t_end
-            )
+            w_start, w_end = _compute_window_bounds(seconds_list, t_start, t_end)
             if records and seconds_list:
                 i_left = bisect.bisect_left(seconds_list, w_start)
                 i_right = bisect.bisect_right(seconds_list, w_end)
@@ -503,7 +690,7 @@ def _extract_window_channel_arrays(
         t_val = r["t"]
         vals = r["values"]
         for ch, (ts_list, vs_list) in ch_items:
-            v = vals.get(ch)
+            v = _resolve_record_value(vals, ch)
             if v is not None:
                 ts_list.append(t_val)
                 vs_list.append(float(v))
@@ -519,18 +706,18 @@ def _evaluate_window_group(
     i_right: int,
     group_reqs: list[dict],
     results: dict,
+    source_units: dict[str, str] | None = None,
 ) -> None:
     """computes series results for all requests sharing a single time-window slice."""
     if i_left >= i_right:
         for req in group_reqs:
-            results[str(req.get("index", ""))] = _empty_series_result(
-                w_start, w_end
-            )
+            results[str(req.get("index", ""))] = _empty_series_result(w_start, w_end)
         return
 
     channel_arrays = _extract_window_channel_arrays(
         records, i_left, i_right, group_reqs
     )
+    src_map = source_units or {}
     for req in group_reqs:
         card_id = str(req.get("index", ""))
         ch = str(req.get("channel", ""))
@@ -538,7 +725,7 @@ def _evaluate_window_group(
             results[card_id] = _empty_series_result(w_start, w_end)
             continue
         t_vals, v_vals = channel_arrays[ch]
-        results[card_id] = _series_from_channel_arrays(
+        series = _series_from_channel_arrays(
             t_vals,
             v_vals,
             w_start,
@@ -547,10 +734,16 @@ def _evaluate_window_group(
             bool(req.get("filterOutliers3Std", False)),
             int(req.get("smoothingWindow", 1)),
         )
+        src_u = req.get("sourceUnit") or src_map.get(ch)
+        tgt_u = req.get("targetUnit")
+        results[card_id] = apply_unit_conversion_to_series(series, src_u, tgt_u)
 
 
 def query_batch_channels(
-    records: list, seconds_list: list, requests: list
+    records: list,
+    seconds_list: list,
+    requests: list,
+    source_units: dict[str, str] | None = None,
 ) -> dict:
     """
     executes a batched query across multiple GraphCards in a single pass,
@@ -564,7 +757,14 @@ def query_batch_channels(
         records, seconds_list, requests
     ):
         _evaluate_window_group(
-            records, w_start, w_end, i_left, i_right, group_reqs, results
+            records,
+            w_start,
+            w_end,
+            i_left,
+            i_right,
+            group_reqs,
+            results,
+            source_units,
         )
 
     return results

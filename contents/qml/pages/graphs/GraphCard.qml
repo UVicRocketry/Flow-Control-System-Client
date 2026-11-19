@@ -25,9 +25,11 @@ Kirigami.Card {
     property int maxBuckets: 300
     property bool showGrid: true
     property bool showFill: true
-    readonly property GraphColorHelper colorHelper: GraphColorHelper {
+    readonly property GraphColorHelper
+    colorHelper: GraphColorHelper {
     }
     // theme-aware resolved colour (updates automatically when Kirigami.Theme changes)
+
     readonly property color resolvedColor: colorHelper.resolve(root.accentColor)
     // layout & resizing properties (fixedCardWidth locks card width to colSpan so content changes never cause warbling)
     property bool editLayoutMode: false
@@ -96,7 +98,7 @@ Kirigami.Card {
         // pass negative windowSeconds when using preset trailing windows so backend slices most recent samples
         var tStartArg = root.useCustomRange ? root.customRangeStart : -root.windowSeconds;
         var tEndArg = root.useCustomRange ? root.customRangeEnd : -1;
-        var res = backend.get_channel_data(root.dataSourceMode, root.channelKey, tStartArg, tEndArg, root.maxBuckets, root.filterOutliers3Std, root.smoothingWindow);
+        var res = backend.get_channel_data(root.dataSourceMode, root.channelKey, tStartArg, tEndArg, root.maxBuckets, root.filterOutliers3Std, root.smoothingWindow, root.yAxisLabel);
         root.applyChannelData(res);
     }
 
@@ -113,6 +115,11 @@ Kirigami.Card {
         root._ready = true;
     }
     onChannelKeyChanged: {
+        if (root._ready)
+            refreshFromBackend();
+
+    }
+    onYAxisLabelChanged: {
         if (root._ready)
             refreshFromBackend();
 

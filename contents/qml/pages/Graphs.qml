@@ -93,9 +93,13 @@ ColumnLayout {
         };
         for (let i = 0; i < graphsModel.count; ++i) {
             let ck = String(graphsModel.get(i).channelKey || "");
-            if (ck !== "")
+            if (ck !== "") {
                 shownChannels[ck] = true;
-
+                if (ck === "M_RUN_TANK")
+                    shownChannels["L_RUN_TANK"] = true;
+                else if (ck === "L_RUN_TANK")
+                    shownChannels["M_RUN_TANK"] = true;
+            }
         }
         var unshown = [];
         var shownCount = 0;
@@ -294,7 +298,8 @@ ColumnLayout {
                 "tEnd": tEndArg,
                 "maxBuckets": card.maxBuckets,
                 "filterOutliers3Std": card.filterOutliers3Std,
-                "smoothingWindow": card.smoothingWindow
+                "smoothingWindow": card.smoothingWindow,
+                "targetUnit": card.yAxisLabel
             });
         }
         if (requests.length === 0)

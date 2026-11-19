@@ -12,9 +12,9 @@
             "color": "theme:neutral",
             "fallback_color": "#e67e22"
         },
-        "L_RUN_TANK": {
+        "M_RUN_TANK": {
             "title": "Runtank Mass",
-            "unit": "N",
+            "unit": "kg",
             "color": "theme:positive",
             "fallback_color": "#2ecc71"
         },
@@ -106,9 +106,9 @@
         },
         {
             "title": "Runtank Mass",
-            "channelKey": "L_RUN_TANK",
+            "channelKey": "M_RUN_TANK",
             "xAxisLabel": "Time (s)",
-            "yAxisLabel": "N",
+            "yAxisLabel": "kg",
             "accentColor": "theme:positive",
             "autoScale": true,
             "manualMinY": 0.0,
@@ -236,6 +236,24 @@
             "xAxisLabel": "Time (s)",
             "yAxisLabel": "N",
             "accentColor": "theme:positive",
+            "autoScale": true,
+            "manualMinY": 0.0,
+            "manualMaxY": 1000.0,
+            "minYRange": 10.0,
+            "filterOutliers3Std": false,
+            "smoothingWindow": 1,
+            "maxBuckets": 300,
+            "showGrid": true,
+            "showFill": true,
+            "colSpan": 1,
+            "cardHeight": 230
+        },
+        {
+            "title": "Post Comb. Temp",
+            "channelKey": "T_POST_COMB",
+            "xAxisLabel": "Time (s)",
+            "yAxisLabel": "°C",
+            "accentColor": "theme:negative",
             "autoScale": true,
             "manualMinY": 0.0,
             "manualMaxY": 1000.0,

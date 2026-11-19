@@ -15,9 +15,7 @@ from pathlib import Path
 from config_manager import CONFIG_DIR, CURRENT_DIR, REPO_ROOT
 
 
-def _add_float_items(
-    values: dict, mapping: dict, skip_keys: set | None = None
-) -> None:
+def _add_float_items(values: dict, mapping: dict, skip_keys: set | None = None) -> None:
     for k, v in mapping.items():
         if skip_keys and (k in skip_keys or isinstance(v, (dict, list))):
             continue
@@ -63,6 +61,8 @@ def _unit_for_channel(ch: str, known_channels: dict) -> str:
     if ch in known_channels and known_channels[ch].get("unit"):
         u = str(known_channels[ch]["unit"])
         return "C" if u == "°C" else u.lower() if u == "PSI" else u
+    if ch.startswith("M_") or ch == "L_RUN_TANK":
+        return "kg"
     if ch.startswith("P_"):
         return "kPa"
     if ch.startswith("T_"):
@@ -72,9 +72,7 @@ def _unit_for_channel(ch: str, known_channels: dict) -> str:
     return ""
 
 
-def resolve_data_file(
-    target: str, known_channels: dict | None = None
-) -> Path:
+def resolve_data_file(target: str, known_channels: dict | None = None) -> Path:
     """
     resolves a requested data filename against direct paths, CONFIG_DIR/data,
     and repository log folders.
@@ -125,9 +123,7 @@ def _is_header_row(row: list[str]) -> bool:
     return non_empty_count > 0 and numeric_count == 0
 
 
-def _parse_jsonl_line(
-    line: str, fallback_t: float
-) -> tuple[float, dict] | None:
+def _parse_jsonl_line(line: str, fallback_t: float) -> tuple[float, dict] | None:
     line = line.strip()
     if not line:
         return None
@@ -140,9 +136,7 @@ def _parse_jsonl_line(
     vals = extract_flat_values(obj)
     if not vals:
         return None
-    sec_raw = obj.get(
-        "seconds", obj.get("uptime", obj.get("time", fallback_t))
-    )
+    sec_raw = obj.get("seconds", obj.get("uptime", obj.get("time", fallback_t)))
     try:
         s_val = float(sec_raw)
     except (ValueError, TypeError):
@@ -166,9 +160,7 @@ def _parse_jsonl_file(resolved_path: Path) -> tuple[list, list, list]:
     return records, raw_seconds, discovered_cols
 
 
-def _parse_csv_time(
-    row: list[str], row_idx: int, time_col_idx: int | None
-) -> float:
+def _parse_csv_time(row: list[str], row_idx: int, time_col_idx: int | None) -> float:
     if time_col_idx is not None and time_col_idx < len(row):
         try:
             return float(row[time_col_idx])
@@ -203,18 +195,39 @@ def _consume_csv_row(
         records.append({"t": s_val, "values": vals})
 
 
-def _parse_csv_file(resolved_path: Path) -> tuple[list, list, list]:
+def _extract_csv_units(
+    first_row: list[str], clean_header: list[str], value_cols: list
+) -> dict[str, str]:
+    clean_units = [u.strip() for u in first_row]
+    if len(clean_units) == len(clean_header) + 1 and clean_units[0] == "":
+        clean_units = clean_units[1:]
+
+    csv_units: dict[str, str] = {}
+    for idx, col_name in value_cols:
+        if idx < len(clean_units) and clean_units[idx]:
+            csv_units[col_name] = clean_units[idx]
+
+    if "L_RUN_TANK" in csv_units and "M_RUN_TANK" not in csv_units:
+        csv_units["M_RUN_TANK"] = csv_units["L_RUN_TANK"]
+    elif "M_RUN_TANK" in csv_units and "L_RUN_TANK" not in csv_units:
+        csv_units["L_RUN_TANK"] = csv_units["M_RUN_TANK"]
+    return csv_units
+
+
+def _parse_csv_file(resolved_path: Path) -> tuple[list, list, list, dict[str, str]]:
     records, raw_seconds, discovered_cols = [], [], []
+    csv_units: dict[str, str] = {}
     with open(resolved_path, "r", encoding="utf-8", errors="replace") as f:
         reader = csv.reader(f)
         first_row = next(reader, None)
         if not first_row:
-            return records, raw_seconds, discovered_cols
+            return records, raw_seconds, discovered_cols, csv_units
 
         second_row = next(reader, None)
         pending_data_rows = []
         # check if first_row is units (psi,psi,...,s) and second_row is names
-        if second_row is not None and _is_header_row(second_row):
+        has_units_row = second_row is not None and _is_header_row(second_row)
+        if has_units_row:
             clean_header = [h.strip() for h in second_row]
         else:
             clean_header = [h.strip() for h in first_row]
@@ -232,40 +245,52 @@ def _parse_csv_file(resolved_path: Path) -> tuple[list, list, list]:
         value_cols = [
             (idx, col_name)
             for idx, col_name in enumerate(clean_header)
-            if idx != time_col_idx
-            and col_name
-            and col_name.lower() not in ignored_cols
+            if idx != time_col_idx and col_name and col_name.lower() not in ignored_cols
         ]
         discovered_cols = [col_name for _, col_name in value_cols]
+        if has_units_row:
+            csv_units = _extract_csv_units(first_row, clean_header, value_cols)
 
         row_counter = 0
         for p_row in pending_data_rows:
             _consume_csv_row(
-                p_row, row_counter, time_col_idx,
-                value_cols, raw_seconds, records,
+                p_row,
+                row_counter,
+                time_col_idx,
+                value_cols,
+                raw_seconds,
+                records,
             )
             row_counter += 1
         for row in reader:
             _consume_csv_row(
-                row, row_counter, time_col_idx,
-                value_cols, raw_seconds, records,
+                row,
+                row_counter,
+                time_col_idx,
+                value_cols,
+                raw_seconds,
+                records,
             )
             row_counter += 1
-    return records, raw_seconds, discovered_cols
+    return records, raw_seconds, discovered_cols, csv_units
 
 
-def parse_telemetry_file(resolved_path: Path) -> tuple[list, list, list]:
+def parse_telemetry_file_with_units(
+    resolved_path: Path,
+) -> tuple[list, list, list, dict[str, str]]:
     """
-    parses a .csv or .jsonl telemetry file into (records, raw_seconds, cols).
+    parses a .csv or .jsonl telemetry file into
+    (records, raw_seconds, cols, csv_units).
     supports single-header and two-row-header CSVs (units + channel names).
     ignores 'timestamp' columns and uses 'seconds' for time indexing.
     """
     if resolved_path.suffix.lower() == ".jsonl":
-        records, raw_seconds, discovered_cols = _parse_jsonl_file(
+        records, raw_seconds, discovered_cols = _parse_jsonl_file(resolved_path)
+        csv_units: dict[str, str] = {}
+    else:
+        records, raw_seconds, discovered_cols, csv_units = _parse_csv_file(
             resolved_path
         )
-    else:
-        records, raw_seconds, discovered_cols = _parse_csv_file(resolved_path)
 
     # normalize unix epoch seconds (>100,000s) to relative seconds
     if raw_seconds:
@@ -277,13 +302,22 @@ def parse_telemetry_file(resolved_path: Path) -> tuple[list, list, list]:
 
     # ensure records are sorted monotonically so bisect slicing works
     if len(records) > 1 and any(
-        raw_seconds[i] > raw_seconds[i + 1]
-        for i in range(len(raw_seconds) - 1)
+        raw_seconds[i] > raw_seconds[i + 1] for i in range(len(raw_seconds) - 1)
     ):
         paired = sorted(zip(raw_seconds, records), key=lambda x: x[0])
         raw_seconds = [p[0] for p in paired]
         records = [p[1] for p in paired]
 
+    return records, raw_seconds, discovered_cols, csv_units
+
+
+def parse_telemetry_file(resolved_path: Path) -> tuple[list, list, list]:
+    """
+    parses a .csv or .jsonl telemetry file into (records, raw_seconds, cols).
+    """
+    records, raw_seconds, discovered_cols, _ = parse_telemetry_file_with_units(
+        resolved_path
+    )
     return records, raw_seconds, discovered_cols
 
 
@@ -365,16 +399,14 @@ def init_recording_csv(dest_path: Path, known_channels: dict) -> list[str]:
             "P_N2O_FLOW",
             "P_N2_FLOW",
             "P_RUN_TANK",
-            "L_RUN_TANK",
+            "M_RUN_TANK",
             "L_THRUST",
             "T_RUN_TANK",
             "T_INJECTOR",
             "T_COMB_CHMBR",
             "T_POST_COMB",
         ]
-    units_row = (
-        [_unit_for_channel(ch, known_channels) for ch in channels] + ["s"]
-    )
+    units_row = [_unit_for_channel(ch, known_channels) for ch in channels] + ["s"]
     header_row = channels + ["seconds"]
     with open(dest_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -395,8 +427,7 @@ def append_recording_rows(
             vals = rec.get("values", {})
             t_val = round(float(rec.get("t", 0.0)), 6)
             row = [
-                round(float(vals[ch]), 4) if ch in vals else ""
-                for ch in channels
+                round(float(vals[ch]), 4) if ch in vals else "" for ch in channels
             ] + [t_val]
             writer.writerow(row)
 
@@ -434,18 +465,14 @@ def _reveal_desktop(target_file: Path, is_dir: bool, log_info_fn) -> None:
         subprocess.Popen(f'explorer {flag}"{target_file}"')
         label = "Explorer"
     else:
-        cmd = ["open", str(target_file)] if is_dir else [
-            "open", "-R", str(target_file)
-        ]
+        cmd = ["open", str(target_file)] if is_dir else ["open", "-R", str(target_file)]
         subprocess.Popen(cmd)
         label = "Finder"
     if log_info_fn:
         log_info_fn(f"Showing in {label}: {target_file.name}")
 
 
-def reveal_in_file_browser(
-    url: str, log_info_fn=None, log_warn_fn=None
-) -> None:
+def reveal_in_file_browser(url: str, log_info_fn=None, log_warn_fn=None) -> None:
     """reveals the target file or directory in the native OS file manager."""
     candidate = Path(url)
     if not candidate.exists():

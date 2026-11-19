@@ -15,6 +15,7 @@ Kirigami.Dialog {
     property string editColor: "theme:highlight"
     property string editXAxisLabel: "Time (s)"
     property string editYAxisLabel: "kPa"
+    property var editAllowedUnits: ["kPa", "psi"]
     property bool editAutoScale: true
     property real editManualMinY: 0
     property real editManualMaxY: 1000
@@ -24,10 +25,62 @@ Kirigami.Dialog {
     property bool editShowGrid: true
     property bool editShowFill: true
     property int editColSpan: 1
-    readonly property GraphColorHelper colorHelper: GraphColorHelper {
+    readonly property GraphColorHelper
+    colorHelper: GraphColorHelper {
     }
 
     signal settingsApplied(int index, var updatedConfig)
+
+    function normalizeUnitLabel(unitStr) {
+        var raw = String(unitStr || "").trim();
+        var lower = raw.toLowerCase();
+        var map = {
+            "kpa": "kPa",
+            "psi": "psi",
+            "psig": "psi",
+            "psia": "psi",
+            "kg": "kg",
+            "kilogram": "kg",
+            "kilograms": "kg",
+            "lb": "lbs",
+            "lbs": "lbs",
+            "pound": "lbs",
+            "pounds": "lbs",
+            "n": "N",
+            "newton": "N",
+            "newtons": "N",
+            "lbf": "lbf",
+            "c": "°C",
+            "°c": "°C",
+            "degc": "°C",
+            "f": "°F",
+            "°f": "°F",
+            "degf": "°F",
+            "k": "K",
+            "kelvin": "K"
+        };
+        return map[lower] || raw;
+    }
+
+    function allowedUnitsForChannel(chKey) {
+        for (let i = 0; i < root.availableChannels.length; ++i) {
+            let ch = root.availableChannels[i];
+            if (ch.key === chKey && ch.allowed_units && ch.allowed_units.length > 0)
+                return ch.allowed_units;
+
+        }
+        var upper = String(chKey || "").trim().toUpperCase();
+        if (upper.indexOf("M_") === 0 || upper === "L_RUN_TANK" || upper.indexOf("MASS") >= 0)
+            return ["kg", "lbs"];
+
+        if (upper.indexOf("T_") === 0)
+            return ["°C", "°F", "K"];
+
+        if (upper.indexOf("L_") === 0)
+            return ["N", "lbf"];
+
+        return ["kPa", "psi"];
+    }
 
     function selectSwatchColor(key) {
         root.editColor = key;
@@ -39,9 +92,14 @@ Kirigami.Dialog {
         root.availableChannels = channels || [];
         root.editTitle = cardData.title || "";
         root.editChannelKey = cardData.channelKey || "P_RUN_TANK";
+        root.editAllowedUnits = root.allowedUnitsForChannel(root.editChannelKey);
+        var desiredUnit = root.normalizeUnitLabel(cardData.yAxisLabel);
+        if (root.editAllowedUnits.indexOf(desiredUnit) < 0)
+            desiredUnit = root.editAllowedUnits[0];
+
+        root.editYAxisLabel = desiredUnit;
         root.editColor = String(cardData.accentColor || "theme:highlight");
         root.editXAxisLabel = cardData.xAxisLabel !== undefined ? cardData.xAxisLabel : "Time (s)";
-        root.editYAxisLabel = cardData.yAxisLabel !== undefined ? cardData.yAxisLabel : "kPa";
         root.editAutoScale = cardData.autoScale !== undefined ? Boolean(cardData.autoScale) : true;
         root.editManualMinY = Number(cardData.manualMinY ?? 0);
         root.editManualMaxY = Number(cardData.manualMaxY ?? 1000);
@@ -54,7 +112,6 @@ Kirigami.Dialog {
         titleField.text = root.editTitle;
         colorHexField.text = root.editColor;
         xAxisField.text = root.editXAxisLabel;
-        yAxisField.text = root.editYAxisLabel;
         minYField.text = String(root.editManualMinY);
         maxYField.text = String(root.editManualMaxY);
         root.open();
@@ -78,7 +135,7 @@ Kirigami.Dialog {
             "channelKey": root.editChannelKey,
             "accentColor": colorHexField.text.trim() !== "" ? colorHexField.text.trim() : root.editColor,
             "xAxisLabel": xAxisField.text,
-            "yAxisLabel": yAxisField.text,
+            "yAxisLabel": yAxisUnitCombo.currentText || root.editYAxisLabel,
             "autoScale": autoScaleCheck.checked,
             "manualMinY": parsedMinY,
             "manualMaxY": parsedMaxY,
@@ -150,9 +207,13 @@ Kirigami.Dialog {
                         if (ch.title)
                             titleField.text = ch.title;
 
-                        if (ch.unit !== undefined)
-                            yAxisField.text = ch.unit;
-
+                        let nextAllowed = root.allowedUnitsForChannel(ch.key);
+                        root.editAllowedUnits = nextAllowed;
+                        let currentUnit = root.normalizeUnitLabel(root.editYAxisLabel);
+                        if (nextAllowed.indexOf(currentUnit) < 0) {
+                            let chUnit = root.normalizeUnitLabel(ch.unit);
+                            root.editYAxisLabel = nextAllowed.indexOf(chUnit) >= 0 ? chUnit : nextAllowed[0];
+                        }
                         if (ch.color)
                             root.selectSwatchColor(ch.color);
 
@@ -201,6 +262,7 @@ Kirigami.Dialog {
                             root.selectSwatchColor(key);
                         }
                     }
+
                 }
 
                 Item {
@@ -236,6 +298,7 @@ Kirigami.Dialog {
                             root.selectSwatchColor(key);
                         }
                     }
+
                 }
 
                 Item {
@@ -354,14 +417,23 @@ Kirigami.Dialog {
             }
 
             Controls.Label {
-                text: "Y-Axis Label:"
+                text: "Y-Axis Unit:"
             }
 
-            Controls.TextField {
-                id: yAxisField
+            Controls.ComboBox {
+                id: yAxisUnitCombo
 
                 Layout.fillWidth: true
-                placeholderText: "kPa / °C / N"
+                model: root.editAllowedUnits
+                currentIndex: {
+                    var idx = root.editAllowedUnits.indexOf(root.editYAxisLabel);
+                    return idx >= 0 ? idx : 0;
+                }
+                onActivated: function(idx) {
+                    if (idx >= 0 && idx < root.editAllowedUnits.length)
+                        root.editYAxisLabel = root.editAllowedUnits[idx];
+
+                }
             }
 
             Controls.Label {

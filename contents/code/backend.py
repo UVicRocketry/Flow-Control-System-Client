@@ -37,12 +37,13 @@ from telemetry_files import (
     delete_data_file,
     init_recording_csv,
     list_local_data_files,
-    parse_telemetry_file,
+    parse_telemetry_file_with_units,
     rename_data_file,
     resolve_data_file,
     reveal_in_file_browser,
 )
 from telemetry_series import (
+    coerce_allowed_unit,
     format_channel_meta,
     ingest_ws_telemetry_frames,
     list_available_channels,
@@ -59,7 +60,7 @@ LARGE_FILE_BYTES = 10 * 1024 * 1024
 
 
 class _FileParseSignals(QtCore.QObject):
-    finished = QtCore.Signal(str, str, str, object, object, object)
+    finished = QtCore.Signal(str, str, str, object, object, object, object)
     failed = QtCore.Signal(str, str)
 
 
@@ -75,7 +76,9 @@ class _FileParseWorker(QtCore.QRunnable):
 
     def run(self):
         try:
-            records, seconds_list, cols = parse_telemetry_file(self.resolved_path)
+            records, seconds_list, cols, csv_units = parse_telemetry_file_with_units(
+                self.resolved_path
+            )
             self.signals.finished.emit(
                 self.mode,
                 self.target,
@@ -83,6 +86,7 @@ class _FileParseWorker(QtCore.QRunnable):
                 records,
                 seconds_list,
                 cols,
+                csv_units,
             )
         except Exception as err:
             self.signals.failed.emit(self.target, str(err))
@@ -158,6 +162,8 @@ class Backend(QtCore.QObject):
         }
         self._loaded_records = []
         self._loaded_seconds = []
+        self._loaded_channel_units = {}
+        self._live_channel_units = {}
         self._loaded_meta = {
             "name": "",
             "path": "",
@@ -588,17 +594,25 @@ class Backend(QtCore.QObject):
         if known_channels:
             self._known_channels = known_channels
         if default_cards:
-            self._default_graph_cards = default_cards
+            self._default_graph_cards = [
+                self._normalize_graph_card(dict(c))
+                for c in default_cards
+                if isinstance(c, dict)
+            ]
         self.channels_changed.emit()
 
     @staticmethod
     def _normalize_graph_card(card: dict) -> dict:
         raw_title = card.get("title") or card.get("channelKey") or "Graph"
+        channel_key = str(card.get("channelKey") or "")
+        if channel_key == "L_RUN_TANK" and "mass" in str(raw_title).lower():
+            channel_key = "M_RUN_TANK"
+        y_unit = coerce_allowed_unit(channel_key, card.get("yAxisLabel"))
         return {
             "title": str(raw_title),
-            "channelKey": str(card.get("channelKey") or ""),
+            "channelKey": channel_key,
             "xAxisLabel": str(card.get("xAxisLabel") or "Time (s)"),
-            "yAxisLabel": str(card.get("yAxisLabel") or ""),
+            "yAxisLabel": y_unit,
             "accentColor": str(card.get("accentColor") or "theme:highlight"),
             "autoScale": bool(card.get("autoScale", True)),
             "manualMinY": float(card.get("manualMinY", 0.0)),
@@ -640,11 +654,13 @@ class Backend(QtCore.QObject):
 
     @QtCore.Property("QVariantList", notify=channels_changed)
     def available_channels(self) -> list:
-        return list_available_channels(self._known_channels)
+        return list_available_channels(self._known_channels, self._loaded_channel_units)
 
     @QtCore.Slot(str, result="QVariantMap")
     def get_channel_meta(self, channel: str) -> dict:
-        return format_channel_meta(self._known_channels, channel)
+        return format_channel_meta(
+            self._known_channels, channel, self._loaded_channel_units
+        )
 
     # telemetry recording (local + server)
 
@@ -1067,6 +1083,22 @@ class Backend(QtCore.QObject):
             self._valves[vid] = self._normalize_valve_state(st)
         self.valves_changed.emit()
 
+    def _apply_live_channels_metadata(self, channels_payload: dict) -> None:
+        new_ch = False
+        for ch_key, ch_info in channels_payload.items():
+            if not isinstance(ch_info, dict):
+                continue
+            key_str = str(ch_key)
+            unit_str = str(ch_info.get("unit") or "").strip()
+            if unit_str:
+                self._live_channel_units[key_str] = unit_str
+            if register_channel_if_missing(
+                self._known_channels, key_str, unit_str or None
+            ):
+                new_ch = True
+        if new_ch:
+            self.channels_changed.emit()
+
     def _handle_init_or_config_msg(self, msg: dict):
         if "armed" in msg:
             self.set_armed(bool(msg["armed"]))
@@ -1075,6 +1107,9 @@ class Backend(QtCore.QObject):
             self._apply_actuator_definitions(valves_payload)
         elif isinstance(valves_payload, dict):
             self._apply_valves_map(valves_payload)
+        channels_payload = msg.get("channels")
+        if isinstance(channels_payload, dict):
+            self._apply_live_channels_metadata(channels_payload)
         if (
             bool(msg.get("recording", False))
             and not self._recording
@@ -1107,10 +1142,15 @@ class Backend(QtCore.QObject):
         self, fname: str, dest_path: Path, overwrote: bool = False
     ):
         """Populates live telemetry in memory from a pulled server file."""
-        records, seconds_list, cols = parse_telemetry_file(dest_path)
+        records, seconds_list, cols, csv_units = parse_telemetry_file_with_units(
+            dest_path
+        )
+        self._live_channel_units.update(csv_units)
         new_ch = False
         for c in cols:
-            if register_channel_if_missing(self._known_channels, c):
+            if register_channel_if_missing(
+                self._known_channels, c, csv_unit=csv_units.get(c)
+            ):
                 new_ch = True
         self._live_records = list(records)
         self._live_seconds = list(seconds_list)
@@ -1246,12 +1286,16 @@ class Backend(QtCore.QObject):
         records: list,
         seconds_list: list,
         cols: list,
+        csv_units: dict | None = None,
     ) -> dict:
+        self._loaded_channel_units = dict(csv_units or {})
         new_ch = False
         for c in cols:
-            if register_channel_if_missing(self._known_channels, c):
+            if register_channel_if_missing(
+                self._known_channels, c, csv_unit=self._loaded_channel_units.get(c)
+            ):
                 new_ch = True
-        if new_ch:
+        if new_ch or self._loaded_channel_units:
             self.channels_changed.emit()
 
         self._loaded_records = records
@@ -1265,6 +1309,7 @@ class Backend(QtCore.QObject):
             "resolvedPath": resolved_str,
             "name": Path(target).name,
             "columns": list(cols),
+            "units": dict(self._loaded_channel_units),
             "count": len(records),
             "minTime": min_t,
             "maxTime": max_t,
@@ -1286,11 +1331,12 @@ class Backend(QtCore.QObject):
         records: list,
         seconds_list: list,
         cols: list,
+        csv_units: dict,
     ):
         if worker in self._active_workers:
             self._active_workers.remove(worker)
         self._apply_parsed_telemetry(
-            mode, target, resolved_str, records, seconds_list, cols
+            mode, target, resolved_str, records, seconds_list, cols, csv_units
         )
 
     def _on_worker_failed(self, worker: _FileParseWorker, target: str, err_msg: str):
@@ -1310,8 +1356,8 @@ class Backend(QtCore.QObject):
             worker = _FileParseWorker(mode, target, resolved_path)
             self._active_workers.append(worker)
             worker.signals.finished.connect(
-                lambda m, t, r, rec, sec, cols, w=worker: self._on_worker_finished(
-                    w, m, t, r, rec, sec, cols
+                lambda m, t, r, rec, sec, cols, units, w=worker: (
+                    self._on_worker_finished(w, m, t, r, rec, sec, cols, units)
                 )
             )
             worker.signals.failed.connect(
@@ -1321,13 +1367,15 @@ class Backend(QtCore.QObject):
             return {}
 
         try:
-            records, seconds_list, cols = parse_telemetry_file(resolved_path)
+            records, seconds_list, cols, csv_units = parse_telemetry_file_with_units(
+                resolved_path
+            )
         except Exception as err:
             self.log_error(f'Failed to parse data file "{target}": {err}')
             return {}
 
         return self._apply_parsed_telemetry(
-            mode, target, str(resolved_path), records, seconds_list, cols
+            mode, target, str(resolved_path), records, seconds_list, cols, csv_units
         )
 
     @QtCore.Slot(str, str, result="QVariant")
@@ -1366,6 +1414,25 @@ class Backend(QtCore.QObject):
 
         return self._load_resolved_file(mode, target, resolved_path)
 
+    def _active_source_units(self, source_mode: str) -> dict[str, str]:
+        units = {
+            k: str(v.get("unit", ""))
+            for k, v in self._known_channels.items()
+            if isinstance(v, dict) and v.get("unit")
+        }
+        overlay = (
+            self._live_channel_units
+            if source_mode == "live"
+            else self._loaded_channel_units
+        )
+        units.update(overlay)
+        if "M_RUN_TANK" in units and "L_RUN_TANK" not in units:
+            units["L_RUN_TANK"] = units["M_RUN_TANK"]
+        elif "L_RUN_TANK" in units and "M_RUN_TANK" not in units:
+            units["M_RUN_TANK"] = units["L_RUN_TANK"]
+        return units
+
+    @QtCore.Slot(str, str, float, float, int, bool, int, str, result="QVariantMap")
     @QtCore.Slot(str, str, float, float, int, bool, int, result="QVariantMap")
     def get_channel_data(
         self,
@@ -1376,15 +1443,18 @@ class Backend(QtCore.QObject):
         max_buckets: int = 300,
         filter_outliers_3std: bool = False,
         smoothing_window: int = 1,
+        target_unit: str = "",
     ) -> dict:
         """
         returns windowed, optionally 3-std outlier-filtered, bucket-downsampled
-        and smoothed time-series points for a given channel.
+        and smoothed time-series points for a given channel, converted to
+        target_unit when provided.
         """
         # use loaded file records in history mode, and live records in live
         use_loaded = source_mode != "live"
         records = self._loaded_records if use_loaded else self._live_records
         seconds_list = self._loaded_seconds if use_loaded else self._live_seconds
+        src_units = self._active_source_units(source_mode)
 
         return query_channel_series(
             records=records,
@@ -1395,6 +1465,8 @@ class Backend(QtCore.QObject):
             max_buckets=max_buckets,
             filter_outliers_3std=filter_outliers_3std,
             smoothing_window=smoothing_window,
+            source_unit=src_units.get(channel),
+            target_unit=target_unit or None,
         )
 
     @QtCore.Slot(str, "QVariantList", result="QVariantMap")
@@ -1403,7 +1475,8 @@ class Backend(QtCore.QObject):
         use_loaded = source_mode != "live"
         records = self._loaded_records if use_loaded else self._live_records
         seconds_list = self._loaded_seconds if use_loaded else self._live_seconds
-        return query_batch_channels(records, seconds_list, requests)
+        src_units = self._active_source_units(source_mode)
+        return query_batch_channels(records, seconds_list, requests, src_units)
 
     @QtCore.Slot(str, result=str)
     @QtCore.Slot(result=str)
