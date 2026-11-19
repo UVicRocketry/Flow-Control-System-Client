@@ -162,8 +162,6 @@ if sys.platform.startswith("linux"):
             for pattern in ["*Kirigami*.so*", "*KF6*.so*", "*Breeze*.so*", "*qqc2*.so*"]:
                 for match in l_dir.glob(pattern):
                     add_binary_once(match, ".")
-            for plugin in l_dir.rglob("*KIconEnginePlugin*.so*"):
-                add_binary_once(plugin, "PySide6/Qt/plugins/iconengines")
             # Bundle Kirigami platform theme plugins (org.kde.desktop.so)
             for kf6_plat in l_dir.rglob("kf6/kirigami/platform/*.so*"):
                 add_binary_once(kf6_plat, "PySide6/Qt/plugins/kf6/kirigami/platform")
@@ -278,6 +276,7 @@ if sys.platform.startswith("linux"):
         "libgmodule-2.0.so",
         "libgthread-2.0.so",
         "libharfbuzz.so",
+        "libmount.so",
     ]
     a.binaries = [
         item for item in a.binaries

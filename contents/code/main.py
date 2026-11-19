@@ -114,12 +114,14 @@ def configure_icon_themes(contents_dir: Path) -> None:
             if not QIcon.theme_name():
                 QIcon.set_theme_name(theme_name)
             QIcon.set_fallback_theme_name(theme_name)
+            QIcon.set_fallback_search_paths([str(bundled_icons / theme_name / "flat")])
 
             def _on_color_scheme_changed(scheme: Qt.ColorScheme) -> None:
                 new_theme = _select_bundled_theme_name(bundled_icons, scheme)
                 if QIcon.theme_name() in ("", "breeze-fallback", "breeze-fallback-light"):
                     QIcon.set_theme_name(new_theme)
                 QIcon.set_fallback_theme_name(new_theme)
+                QIcon.set_fallback_search_paths([str(bundled_icons / new_theme / "flat")])
 
             QGuiApplication.style_hints().colorSchemeChanged.connect(
                 _on_color_scheme_changed
@@ -222,6 +224,13 @@ def handle_startup_error(
 
 def main() -> None:
     """Bootstrapper"""
+    contents_dir = get_resource_dir()
+
+    # Expose contents/icons to KIconLoader (QStandardPaths::GenericDataLocation) before QApplication init
+    if sys.platform.startswith("linux"):
+        xdg_dirs = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share")
+        if str(contents_dir) not in xdg_dirs.split(":"):
+            os.environ["XDG_DATA_DIRS"] = f"{xdg_dirs}:{contents_dir}"
 
     # platform styling
     if not os.environ.get("QT_QUICK_CONTROLS_STYLE"):
@@ -241,7 +250,6 @@ def main() -> None:
     QApplication.organization_name = "Uvic Rocketry"
     QApplication.application_name = "fcs-client"
 
-    contents_dir = get_resource_dir()
     icon_path = resolve_app_icon(contents_dir)
     app.window_icon = QIcon(str(icon_path))
 

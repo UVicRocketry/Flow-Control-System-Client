@@ -54,7 +54,7 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
         padding: Kirigami.Units.gridUnit / 2
-        Kirigami.Theme.colorSet: Kirigami.Theme.Complementary
+        Kirigami.Theme.colorSet: Kirigami.Theme.View
         Kirigami.Theme.inherit: false
 
         Controls.ScrollView {
