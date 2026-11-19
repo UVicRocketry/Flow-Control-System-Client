@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main, breaking]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install lint and test dependencies
+        run: python -m pip install --upgrade pip ruff pytest PySide6-Essentials
+
+      - name: Run Ruff lint checks
+        run: ruff check contents/code tools tests --fix
+
+      - name: Check QML syntax with qmllint
+        run: |
+          QMLLINT_BIN="$(command -v pyside6-qmllint || command -v qmllint || true)"
+          if [[ -z "${QMLLINT_BIN}" ]]; then
+            echo "Error: qmllint binary not found in PATH" >&2
+            exit 1
+          fi
+          mapfile -t qml_files < <(find contents/qml -name '*.qml' | sort)
+          "${QMLLINT_BIN}" -I contents/qml "${qml_files[@]}"
+
+      - name: Run pytest
+        run: pytest -v

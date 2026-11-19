@@ -68,15 +68,7 @@ def _extract_ws_seconds(data_obj: dict) -> float:
         return time.time()
 
 
-def _parse_ws_telemetry_line(line: str) -> tuple[dict, dict, float] | None:
-    line = line.strip()
-    if not line:
-        return None
-    try:
-        msg = json.loads(line)
-    except Exception:
-        return None
-
+def _parse_ws_telemetry_obj(msg: object) -> tuple[dict, dict, float] | None:
     if not isinstance(msg, dict):
         return None
 
@@ -93,8 +85,20 @@ def _parse_ws_telemetry_line(line: str) -> tuple[dict, dict, float] | None:
     return data_obj, values, _extract_ws_seconds(data_obj)
 
 
+def _parse_ws_telemetry_line(line: str) -> tuple[dict, dict, float] | None:
+    line = line.strip()
+    if not line:
+        return None
+    try:
+        msg = json.loads(line)
+    except Exception:
+        return None
+
+    return _parse_ws_telemetry_obj(msg)
+
+
 def ingest_ws_telemetry_frames(
-    raw_message: str,
+    raw_message: str | list[dict],
     known_channels: dict,
     live_records: list,
     live_seconds: list,
@@ -102,8 +106,9 @@ def ingest_ws_telemetry_frames(
     latest_telemetry: dict,
 ) -> tuple[bool, list, float | None, dict]:
     """
-    parses incoming WebSocket text frames (supporting both single JSON packets
-    and multi-line JSONL streams) and appends samples to live_records.
+    parses incoming WebSocket text frames (supporting both single JSON packets,
+    multi-line JSONL streams, or pre-parsed message dicts) and appends samples
+    to live_records.
     returns (new_channels_added, ingested_records, live_t0, latest_telemetry).
     """
     if not raw_message:
@@ -112,8 +117,12 @@ def ingest_ws_telemetry_frames(
     new_channels = False
     ingested_records = []
 
-    for line in raw_message.splitlines():
-        parsed = _parse_ws_telemetry_line(line)
+    if isinstance(raw_message, list):
+        parsed_items = (_parse_ws_telemetry_obj(obj) for obj in raw_message)
+    else:
+        parsed_items = (_parse_ws_telemetry_line(line) for line in raw_message.splitlines())
+
+    for parsed in parsed_items:
         if parsed is None:
             continue
         data_obj, values, sec_val = parsed

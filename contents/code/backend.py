@@ -1141,9 +1141,6 @@ class Backend(QtCore.QObject):
             overwrote = dest_path.exists()
             with open(dest_path, "w", encoding="utf-8") as f:
                 f.write(str(content))
-            if overwrote:
-                self._loaded_datasets.pop(f"local:{fname}", None)
-                self._loaded_datasets.pop(f"remote:{fname}", None)
             self.refresh_local_data()
             if req_mode == "load":
                 self._load_resolved_file("remote", fname, dest_path)
@@ -1213,6 +1210,7 @@ class Backend(QtCore.QObject):
     @QtCore.Slot(str)
     def ingest_ws_message(self, raw_message: str):
         """ingests incoming WebSocket frames into control and telemetry."""
+        parsed_frames: list[dict] = []
         for line in raw_message.splitlines():
             stripped = line.strip()
             if not stripped:
@@ -1223,9 +1221,10 @@ class Backend(QtCore.QObject):
                 continue
             if isinstance(parsed, dict):
                 self._handle_control_message(parsed)
+                parsed_frames.append(parsed)
 
         res = ingest_ws_telemetry_frames(
-            raw_message,
+            parsed_frames,
             self._known_channels,
             self._live_records,
             self._live_seconds,

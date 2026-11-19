@@ -1,20 +1,84 @@
 [project]
 name = "Flow Control System Client"
-version = "0.0.1"
+version = "0.3.0"
+requires-python = ">=3.11"
 
 [tool.pyside6-project]
-files = ["contents/code/backend.py", "contents/code/config_manager.py", "contents/code/main.py", "contents/code/splash.py", "contents/code/telemetry_files.py", "contents/code/telemetry_series.py", "contents/qml/LogToaster.qml", "contents/qml/NotificationToast.qml", "contents/qml/NotificationTray.qml", "contents/qml/Splash.qml", "contents/qml/Websocket.qml", "contents/qml/main.qml", "contents/qml/pages/Actuators.qml", "contents/qml/pages/Dashboard.qml", "contents/qml/pages/Graphs.qml", "contents/qml/pages/Sidebar.qml", "contents/qml/pages/Video.qml", "contents/qml/pages/dashboard/DashboardFunctions.qml", "contents/qml/pages/dashboard/DashboardHeader.qml", "contents/qml/pages/dashboard/DataActionsPanel.qml", "contents/qml/pages/dashboard/DataDialogs.qml", "contents/qml/pages/dashboard/DataListPanel.qml", "contents/qml/pages/graphs/GraphCanvas.qml", "contents/qml/pages/graphs/GraphCard.qml", "contents/qml/pages/graphs/GraphCardFooter.qml", "contents/qml/pages/graphs/GraphCardHeader.qml", "contents/qml/pages/graphs/GraphEditDialog.qml", "contents/qml/pages/graphs/GraphResizeHandles.qml", "contents/qml/pages/sidebar/ActuatorsViewHelper.qml", "contents/qml/pages/sidebar/DashboardViewHelper.qml", "contents/qml/pages/sidebar/GraphsViewHelper.qml", "contents/qml/pages/sidebar/SidebarBottomBar.qml", "contents/qml/pages/sidebar/SidebarNavList.qml", "contents/qml/pages/sidebar/VideoViewHelper.qml"]
-
-[tool.pylint.main]
-extension-pkg-allow-list = ["PySide6"]
-ignored-modules = ["__feature__"]
-
-[tool.pylint."messages control"]
-disable = [
-    "raw-checker-failed",
-    "bad-inline-option",
-    "locally-disabled",
-    "file-ignored",
-    "suppressed-message",
-    "useless-suppression",
+files = [
+    "contents/code/backend.py",
+    "contents/code/config_manager.py",
+    "contents/code/main.py",
+    "contents/code/splash.py",
+    "contents/code/telemetry_files.py",
+    "contents/code/telemetry_series.py",
+    "contents/qml/LogToaster.qml",
+    "contents/qml/NotificationToast.qml",
+    "contents/qml/NotificationTray.qml",
+    "contents/qml/Settings.qml",
+    "contents/qml/Splash.qml",
+    "contents/qml/StatusDot.qml",
+    "contents/qml/Websocket.qml",
+    "contents/qml/main.qml",
+    "contents/qml/pages/Actuators.qml",
+    "contents/qml/pages/BundledIcon.qml",
+    "contents/qml/pages/Dashboard.qml",
+    "contents/qml/pages/DragHandlebar.qml",
+    "contents/qml/pages/Graphs.qml",
+    "contents/qml/pages/IconToolButton.qml",
+    "contents/qml/pages/PageHelper.qml",
+    "contents/qml/pages/PaneScrollBar.qml",
+    "contents/qml/pages/PopoutWindow.qml",
+    "contents/qml/pages/PoppedOutPlaceholder.qml",
+    "contents/qml/pages/Sidebar.qml",
+    "contents/qml/pages/SplitPaneFrame.qml",
+    "contents/qml/pages/SplitResizeHandle.qml",
+    "contents/qml/pages/SplitTabBar.qml",
+    "contents/qml/pages/Video.qml",
+    "contents/qml/pages/actuators/ActuatorCard.qml",
+    "contents/qml/pages/dashboard/DashboardFunctions.qml",
+    "contents/qml/pages/dashboard/DashboardHeader.qml",
+    "contents/qml/pages/dashboard/DataActionsPanel.qml",
+    "contents/qml/pages/dashboard/DataDialogs.qml",
+    "contents/qml/pages/dashboard/DataListPanel.qml",
+    "contents/qml/pages/graphs/GraphCanvas.qml",
+    "contents/qml/pages/graphs/GraphCard.qml",
+    "contents/qml/pages/graphs/GraphCardFooter.qml",
+    "contents/qml/pages/graphs/GraphCardHeader.qml",
+    "contents/qml/pages/graphs/GraphColorHelper.qml",
+    "contents/qml/pages/graphs/GraphColorSwatch.qml",
+    "contents/qml/pages/graphs/GraphEditDialog.qml",
+    "contents/qml/pages/graphs/GraphResizeHandles.qml",
+    "contents/qml/pages/sidebar/ActuatorsViewHelper.qml",
+    "contents/qml/pages/sidebar/GraphsViewHelper.qml",
+    "contents/qml/pages/sidebar/SidebarBottomBar.qml",
+    "contents/qml/pages/sidebar/SidebarNavList.qml",
+    "contents/qml/pages/sidebar/VideoViewHelper.qml",
 ]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 70
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "C901"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "backend",
+    "config_manager",
+    "splash",
+    "telemetry_files",
+    "telemetry_series",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"contents/code/main.py" = ["I001"]
+"contents/code/telemetry_series.py" = ["C901"]
+"tools/populate_fallback_theme.py" = ["C901"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["contents/code"]

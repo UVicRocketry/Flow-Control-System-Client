@@ -52,17 +52,6 @@ def resolve_app_icon(contents_dir: Path) -> Path:
     return icon_path
 
 
-def close_pyinstaller_splash() -> None:
-    """Closes the PyInstaller bootloader splash if present."""
-    try:
-        import pyi_splash
-
-        if pyi_splash.is_alive():
-            pyi_splash.close()
-    except (ImportError, AttributeError):
-        pass
-
-
 def _select_bundled_theme_name(bundled_icons: Path, scheme: Qt.ColorScheme | None = None) -> str:
     """Returns the appropriate bundled icon theme name ('breeze-fallback-light' or 'breeze-fallback')."""
     if scheme is None:
@@ -150,12 +139,12 @@ def add_dev_qml_paths(engine: QQmlApplicationEngine) -> None:
             if Path(sys_qml).exists():
                 engine.add_import_path(sys_qml)
     elif sys.platform == "win32":
-        craft_root = Path(os.environ.get("CRAFT_ROOT", r"C:\CraftRoot"))
-        if (craft_root / "bin").exists() and hasattr(os, "add_dll_directory"):
-            os.add_dll_directory(str(craft_root / "bin"))
-        for qml_sub in ["qml", r"bin\data\qml", r"share\qt6\qml"]:
-            if (craft_root / qml_sub).exists():
-                engine.add_import_path(str(craft_root / qml_sub))
+        env_root = Path(os.environ.get("CRAFT_ROOT") or sys.prefix)
+        if (env_root / "bin").exists() and hasattr(os, "add_dll_directory"):
+            os.add_dll_directory(str(env_root / "bin"))
+        for qml_sub in ("qml", r"bin\data\qml", r"share\qt6\qml"):
+            if (env_root / qml_sub).exists():
+                engine.add_import_path(str(env_root / qml_sub))
 
 
 def configure_qml_paths(
@@ -264,7 +253,6 @@ def main() -> None:
     QApplication.process_events()
     splash.set_status("Starting Flow Control...")
 
-    close_pyinstaller_splash()
     configure_icon_themes(contents_dir)
 
     splash.set_status("Initializing backend controller...")

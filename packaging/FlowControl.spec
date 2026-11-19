@@ -36,9 +36,10 @@ datas = [
 if PNG_ICON.exists():
     datas.append((str(PNG_ICON), "contents/qml/img"))
 
-config_dir = REPO_ROOT / "contents" / "config"
-if config_dir.exists():
-    datas.append((str(config_dir), "contents/config"))
+for rel_cfg in ("contents/config/config.json", "contents/config/graphs/graphs.json"):
+    cfg_file = REPO_ROOT / rel_cfg
+    if cfg_file.exists():
+        datas.append((str(cfg_file), str(Path(rel_cfg).parent).replace("\\", "/")))
 
 metadata_file = REPO_ROOT / "metadata.json"
 if metadata_file.exists():
@@ -214,6 +215,76 @@ a = Analysis(
     noarchive=False,
     optimize=1,
 )
+
+EXCLUDED_QT_TOKENS = (
+    "qt3d",
+    "qt63d",
+    "qtcharts",
+    "qt6charts",
+    "qtdatavisualization",
+    "qt6datavisualization",
+    "qtquick3d",
+    "qt6quick3d",
+    "qtwebengine",
+    "qt6webengine",
+    "qtwebview",
+    "qt6webview",
+    "qtwebchannel",
+    "qt6webchannel",
+    "qtpdf",
+    "qt6pdf",
+    "qtvirtualkeyboard",
+    "qt6virtualkeyboard",
+    "qtsensors",
+    "qt6sensors",
+    "qtlocation",
+    "qt6location",
+    "qtpositioning",
+    "qt6positioning",
+    "qtbluetooth",
+    "qt6bluetooth",
+    "qtnfc",
+    "qt6nfc",
+    "qtserial",
+    "qt6serial",
+    "qtremoteobjects",
+    "qt6remoteobjects",
+    "qtscxml",
+    "qt6scxml",
+    "qtstatemachine",
+    "qt6statemachine",
+    "qttexttospeech",
+    "qt6texttospeech",
+    "qthttpserver",
+    "qt6httpserver",
+    "qtgrpc",
+    "qt6grpc",
+    "qtprotobuf",
+    "qt6protobuf",
+    "qtdesigner",
+    "qt6designer",
+    "qthelp",
+    "qt6help",
+    "qttest",
+    "qt6test",
+    "qtsql",
+    "qt6sql",
+    "qtxml",
+    "qt6xml",
+    "qtuitools",
+    "qt6uitools",
+)
+
+
+def _keep_entry(dest_name: str) -> bool:
+    norm = dest_name.replace("\\", "/").lower()
+    if norm.startswith("contents/") or "fluentwinui3" in norm:
+        return True
+    return not any(tok in norm for tok in EXCLUDED_QT_TOKENS)
+
+
+a.binaries = [entry for entry in a.binaries if _keep_entry(entry[0])]
+a.datas = [entry for entry in a.datas if _keep_entry(entry[0])]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
