@@ -27,6 +27,8 @@ ColumnLayout {
         spacing: Kirigami.Units.smallSpacing
 
         Controls.Button {
+            id: sidebarConnectBtn
+
             Layout.fillWidth: true
             spacing: Kirigami.Units.smallSpacing
             text: root.camActive ? "Disconnect" : "Connect"
@@ -35,6 +37,13 @@ ColumnLayout {
             onClicked: {
                 if (root.hasBackend)
                     backend.toggle_camera();
+
+            }
+            Component.onCompleted: {
+                if (background && ("text" in background))
+                    background.text = Qt.binding(function() {
+                        return sidebarConnectBtn.Kirigami.MnemonicData.active ? ("&" + sidebarConnectBtn.text) : sidebarConnectBtn.text;
+                    });
 
             }
         }

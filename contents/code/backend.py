@@ -17,7 +17,7 @@ from urllib.request import (
     build_opener,
 )
 
-from PySide6 import QtCore
+from PySide6 import QtCore, QtMultimedia
 from PySide6.QtNetwork import QNetworkInterface
 from PySide6.QtWidgets import QFileDialog
 from __feature__ import snake_case, true_property
@@ -544,6 +544,19 @@ class Backend(QtCore.QObject):
         if self._camera_active != active:
             self._camera_active = active
             self.camera_active_changed.emit(active)
+
+    @QtCore.Slot(QtCore.QObject)
+    def configure_camera_player(self, player: QtCore.QObject):
+        """Configures QML MediaPlayer with LowLatencyStreaming and 5s network timeout."""
+        try:
+            opts = player.playback_options
+            opts.playback_intent = (
+                QtMultimedia.QPlaybackOptions.PlaybackIntent.LowLatencyStreaming
+            )
+            opts.network_timeout = 5000
+            player.playback_options = opts
+        except Exception:
+            pass
 
     @QtCore.Slot()
     def toggle_camera(self):

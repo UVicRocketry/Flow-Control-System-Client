@@ -1,5 +1,6 @@
 import QtMultimedia
 import QtQuick
+import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
@@ -13,29 +14,45 @@ ColumnLayout {
     readonly property bool hasError: player.error !== MediaPlayer.NoError
     property bool _userStopped: false
     property bool _wasStreaming: false
+    property bool _isReconfiguring: false
+
+    function startStream() {
+        if (!hasBackend)
+            return ;
+
+        _userStopped = false;
+        player.source = backend.camera_rtsp_url;
+        player.play();
+        connectTimeoutTimer.restart();
+    }
 
     function toggleStream() {
-        if (isActive) {
+        if (isActive || reconnectTimer.running) {
             _userStopped = true;
-            _wasStreaming = false;
+            _isReconfiguring = false;
+            reconnectTimer.stop();
             connectTimeoutTimer.stop();
             player.stop();
             player.source = "";
+            _wasStreaming = false;
             if (hasBackend)
                 backend.info("Camera stream disconnected.");
 
-        } else if (hasBackend) {
-            _userStopped = false;
+        } else {
             _wasStreaming = false;
-            player.source = backend.camera_rtsp_url;
-            player.play();
-            connectTimeoutTimer.restart();
+            _isReconfiguring = false;
+            startStream();
         }
     }
 
+    Component.onCompleted: {
+        if (hasBackend)
+            backend.configure_camera_player(player);
+
+    }
     onIsActiveChanged: {
         if (hasBackend)
-            backend.set_camera_active(isActive);
+            backend.set_camera_active(isActive || reconnectTimer.running);
 
     }
     Layout.fillWidth: true
@@ -47,17 +64,25 @@ ColumnLayout {
         }
 
         function onCamera_config_changed() {
-            if (videoRoot.isActive && videoRoot.hasBackend) {
-                videoRoot._userStopped = false;
-                videoRoot._wasStreaming = false;
+            if ((videoRoot.isActive || reconnectTimer.running) && videoRoot.hasBackend) {
+                videoRoot._userStopped = true;
+                videoRoot._isReconfiguring = videoRoot._wasStreaming;
+                connectTimeoutTimer.stop();
                 player.stop();
-                player.source = backend.camera_rtsp_url;
-                player.play();
-                connectTimeoutTimer.restart();
+                player.source = "";
+                reconnectTimer.restart();
             }
         }
 
         target: videoRoot.hasBackend ? backend : null
+    }
+
+    Timer {
+        id: reconnectTimer
+
+        interval: 120
+        repeat: false
+        onTriggered: videoRoot.startStream()
     }
 
     Timer {
@@ -68,6 +93,7 @@ ColumnLayout {
         onTriggered: {
             if (videoRoot.isConnecting && !videoRoot._wasStreaming) {
                 videoRoot._userStopped = true;
+                videoRoot._isReconfiguring = false;
                 player.stop();
                 player.source = "";
                 if (videoRoot.hasBackend)
@@ -81,23 +107,24 @@ ColumnLayout {
         id: player
 
         videoOutput: videoOut
-        playbackOptions.playbackIntent: QPlaybackOptions.LowLatencyStreaming
         onErrorOccurred: function(error, errorString) {
             connectTimeoutTimer.stop();
             videoRoot._wasStreaming = false;
+            videoRoot._isReconfiguring = false;
             if (videoRoot.hasBackend && error !== MediaPlayer.NoError) {
                 let clean = (errorString || "Connection failed").replace(/(:\/\/[^:/@\s]+:)([^@\s]+)(@)/, "$1***$3");
                 backend.err("Camera stream error: " + clean);
             }
         }
         onMediaStatusChanged: function(status) {
-            if (status === MediaPlayer.BufferedMedia || status === MediaPlayer.LoadedMedia) {
+            if (status === MediaPlayer.BufferedMedia && !videoRoot._userStopped) {
                 connectTimeoutTimer.stop();
-                if (!videoRoot._wasStreaming && videoRoot.hasBackend) {
-                    videoRoot._wasStreaming = true;
+                if (!videoRoot._wasStreaming && !videoRoot._isReconfiguring && videoRoot.hasBackend)
                     backend.info("Camera stream connected.");
-                }
-            } else if (status === MediaPlayer.StalledMedia) {
+
+                videoRoot._wasStreaming = true;
+                videoRoot._isReconfiguring = false;
+            } else if (status === MediaPlayer.StalledMedia && !videoRoot._userStopped) {
                 if (videoRoot.hasBackend)
                     backend.warn("Camera stream stalled.");
 
@@ -107,15 +134,16 @@ ColumnLayout {
                     backend.warn("Camera stream disconnected (end of stream).");
 
                 videoRoot._wasStreaming = false;
+                videoRoot._isReconfiguring = false;
             }
         }
         onPlaybackStateChanged: function(state) {
             if (state === MediaPlayer.StoppedState) {
                 connectTimeoutTimer.stop();
-                if (videoRoot._wasStreaming && !videoRoot._userStopped && !videoRoot.hasError && videoRoot.hasBackend)
+                if (videoRoot._wasStreaming && !videoRoot._userStopped && !videoRoot.hasError && videoRoot.hasBackend) {
                     backend.warn("Camera stream disconnected unexpectedly.");
-
-                videoRoot._wasStreaming = false;
+                    videoRoot._wasStreaming = false;
+                }
             }
         }
     }
@@ -152,10 +180,22 @@ ColumnLayout {
                 text: videoRoot.hasError ? "Camera Stream Error" : (videoRoot.isConnecting ? "Connecting..." : "IP Camera Feed")
                 explanation: videoRoot.hasError ? player.errorString : "Hardware-decoded H.264 stream (configure IP & credentials in Settings)"
 
-                helpfulAction: Kirigami.Action {
+                Controls.Button {
+                    id: placeholderConnectBtn
+
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.topMargin: Kirigami.Units.gridUnit
                     text: videoRoot.isConnecting ? "Disconnect" : "Connect"
                     icon.name: videoRoot.isConnecting ? "network-disconnect" : "network-connect"
-                    onTriggered: videoRoot.toggleStream()
+                    Kirigami.MnemonicData.enabled: false
+                    onClicked: videoRoot.toggleStream()
+                    Component.onCompleted: {
+                        if (background && ("text" in background))
+                            background.text = Qt.binding(function() {
+                                return placeholderConnectBtn.Kirigami.MnemonicData.active ? ("&" + placeholderConnectBtn.text) : placeholderConnectBtn.text;
+                            });
+
+                    }
                 }
 
             }
