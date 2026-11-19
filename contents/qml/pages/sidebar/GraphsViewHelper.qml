@@ -1,3 +1,4 @@
+import ".."
 import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
@@ -13,23 +14,58 @@ ColumnLayout {
     required property real effectiveWindowSeconds
     required property bool smoothAllActive
     required property bool editLayoutActive
+    readonly property var presetOrder: ["30s", "1m", "3m", "custom"]
 
     signal presetSelected(string preset)
     signal customSecondsModified(int seconds)
     signal smoothAllToggled(bool active)
     signal editLayoutToggled(bool active)
 
+    function cycleTimeScale() {
+        let idx = presetOrder.indexOf(timeScalePreset);
+        let next = presetOrder[(idx + 1) % presetOrder.length];
+        presetSelected(next);
+    }
+
     Layout.fillWidth: true
     spacing: Kirigami.Units.smallSpacing
 
-    // time scaling presets (30s, 1m, 3m, custom -> most recent)
+    // time scaling presets (30s, 1m, 3m, custom -> most recent; single Alt+T mnemonic cycles presets)
     ColumnLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
 
-        Kirigami.ListSectionHeader {
+        RowLayout {
             Layout.fillWidth: true
-            text: "Time Scale"
+            Layout.topMargin: Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing
+            Layout.leftMargin: Kirigami.Units.smallSpacing
+            Layout.rightMargin: Kirigami.Units.smallSpacing
+            spacing: Kirigami.Units.largeSpacing
+
+            Controls.Label {
+                id: timeScaleHeader
+
+                opacity: 0.75
+                font.bold: true
+                Kirigami.MnemonicData.enabled: root.visible
+                Kirigami.MnemonicData.controlType: Kirigami.MnemonicData.ActionElement
+                Kirigami.MnemonicData.label: "&Time Scale"
+                text: timeScaleHeader.Kirigami.MnemonicData.richTextLabel
+                textFormat: Text.StyledText
+
+                Shortcut {
+                    enabled: timeScaleHeader.Kirigami.MnemonicData.enabled
+                    sequence: timeScaleHeader.Kirigami.MnemonicData.sequence
+                    onActivated: root.cycleTimeScale()
+                }
+
+            }
+
+            Kirigami.Separator {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+            }
+
         }
 
         GridLayout {
@@ -46,6 +82,7 @@ ColumnLayout {
                 checkable: true
                 checked: root.timeScalePreset === "30s"
                 highlighted: checked
+                Kirigami.MnemonicData.enabled: false
                 onClicked: root.presetSelected("30s")
             }
 
@@ -55,6 +92,7 @@ ColumnLayout {
                 checkable: true
                 checked: root.timeScalePreset === "1m"
                 highlighted: checked
+                Kirigami.MnemonicData.enabled: false
                 onClicked: root.presetSelected("1m")
             }
 
@@ -64,6 +102,7 @@ ColumnLayout {
                 checkable: true
                 checked: root.timeScalePreset === "3m"
                 highlighted: checked
+                Kirigami.MnemonicData.enabled: false
                 onClicked: root.presetSelected("3m")
             }
 
@@ -73,6 +112,7 @@ ColumnLayout {
                 checkable: true
                 checked: root.timeScalePreset === "custom"
                 highlighted: checked
+                Kirigami.MnemonicData.enabled: false
                 onClicked: root.presetSelected("custom")
             }
 
@@ -124,30 +164,29 @@ ColumnLayout {
             Layout.rightMargin: Kirigami.Units.smallSpacing
             spacing: Kirigami.Units.smallSpacing
 
-            Controls.Button {
+            IconToolButton {
                 Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
-                text: "3σ Smooth All"
-                Kirigami.MnemonicData.label: "3σ &Smooth All"
-                icon.name: "view-filter"
+                flat: false
+                centerContent: true
+                iconName: "view-filter"
+                labelText: "3σ Smoot&h All"
                 checkable: true
                 checked: root.smoothAllActive
                 highlighted: checked
-                Controls.ToolTip.visible: hovered
-                Controls.ToolTip.text: "Toggle 3-standard-deviation outlier smoothing on all graphs"
+                toolTipText: "Toggle 3-standard-deviation outlier smoothing on all graphs (Alt+H)"
                 onToggled: root.smoothAllToggled(checked)
             }
 
-            Controls.Button {
+            IconToolButton {
                 Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
-                text: root.editLayoutActive ? "Done Editing" : "Edit Layout"
-                icon.name: "edit-rename"
+                flat: false
+                centerContent: true
+                iconName: "edit-rename"
+                labelText: root.editLayoutActive ? "Done &Editing" : "&Edit Layout"
                 checkable: true
                 checked: root.editLayoutActive
                 highlighted: checked
-                Controls.ToolTip.visible: hovered
-                Controls.ToolTip.text: "Toggle graph edit buttons and resize handlebars"
+                toolTipText: "Toggle graph edit buttons and resize handlebars (Alt+E)"
                 onToggled: root.editLayoutToggled(checked)
             }
 

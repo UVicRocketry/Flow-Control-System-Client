@@ -66,12 +66,12 @@ Kirigami.ApplicationWindow {
                     property bool serverOnline: sharedWebSocket.status === WebSocket.Open
 
                     iconName: "keyframe-record"
-                    labelText: isRecording ? "Recording..." : "Record data"
+                    labelText: isRecording ? "&Recording..." : "&Record data"
                     boldText: isRecording
                     textColor: isRecording ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
                     iconColor: textColor
                     invertOnChecked: false
-                    contentOpacity: serverOnline || isRecording ? 1.0 : 0.5
+                    contentOpacity: serverOnline || isRecording ? 1 : 0.5
                     checkable: true
                     checked: isRecording
                     highlighted: isRecording
@@ -296,7 +296,7 @@ Kirigami.ApplicationWindow {
 
             IconToolButton {
                 iconName: "window-new"
-                labelText: "Popout Window"
+                labelText: "Popout &Window"
                 enabled: pageHelper.activeInlinePage !== "" && !pageHelper.poppedOutPages[pageHelper.activeInlinePage]
                 toolTipText: pageHelper.poppedOutPages[pageHelper.activeInlinePage] ? "Active view is already popped out" : "Pop out active view into a separate window (Alt+Click in sidebar)"
                 onClicked: pageHelper.openPageInNewWindow(pageHelper.activeInlinePage)
@@ -304,7 +304,7 @@ Kirigami.ApplicationWindow {
 
             IconToolButton {
                 iconName: "view-split-left-right"
-                labelText: "Split View"
+                labelText: "S&plit View"
                 checkable: true
                 checked: pageHelper.splitViewActive
                 toolTipText: pageHelper.splitViewActive ? "Close split view" : "Open side-by-side split view"

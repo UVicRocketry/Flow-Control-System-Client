@@ -1,8 +1,8 @@
+import ".."
 import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
-import ".."
 
 // primary view navigation list at the top of the sidebar
 ListView {
@@ -38,6 +38,7 @@ ListView {
         ListElement {
             category: "Views"
             name: "Data sources"
+            mnemonicName: "&Data sources"
             iconName: "computer"
             page: "dashboard"
         }
@@ -45,6 +46,7 @@ ListView {
         ListElement {
             category: "Views"
             name: "Valve actuators"
+            mnemonicName: "&Valve actuators"
             iconName: "network-wired"
             page: "actuators"
         }
@@ -52,6 +54,7 @@ ListView {
         ListElement {
             category: "Views"
             name: "Graphs"
+            mnemonicName: "&Graphs"
             iconName: "utilities-system-monitor"
             page: "graphs"
         }
@@ -59,6 +62,7 @@ ListView {
         ListElement {
             category: "Views"
             name: "Video"
+            mnemonicName: "V&ideo"
             iconName: "camera-video"
             page: "video"
         }
@@ -76,6 +80,7 @@ ListView {
         id: navBtn
 
         required property string name
+        required property string mnemonicName
         required property string iconName
         required property string page
         property int lastModifiers: Qt.NoModifier
@@ -86,38 +91,6 @@ ListView {
         highlighted: root.isPageActive(page)
         Kirigami.MnemonicData.enabled: false
         Kirigami.MnemonicData.label: ""
-
-        contentItem: RowLayout {
-            spacing: Kirigami.Units.mediumSpacing
-
-            BundledIcon {
-                Layout.alignment: Qt.AlignVCenter
-                iconName: navBtn.iconName
-                iconSize: Kirigami.Units.iconSizes.smallMedium
-            }
-
-            Controls.Label {
-                id: navLabel
-
-                Layout.fillWidth: true
-                Layout.alignment: Qt.AlignVCenter
-                Kirigami.MnemonicData.enabled: navBtn.enabled && navBtn.visible
-                Kirigami.MnemonicData.controlType: Kirigami.MnemonicData.SecondaryControl
-                Kirigami.MnemonicData.label: navBtn.name
-                text: navLabel.Kirigami.MnemonicData.richTextLabel
-                textFormat: Text.StyledText
-                font.bold: navBtn.highlighted
-                color: Kirigami.Theme.textColor
-                elide: Text.ElideRight
-
-                Shortcut {
-                    enabled: navLabel.Kirigami.MnemonicData.enabled
-                    sequence: navLabel.Kirigami.MnemonicData.sequence
-                    onActivated: root.navigateRequested(navBtn.page)
-                }
-            }
-        }
-
         onClicked: {
             var mods = navBtn.lastModifiers;
             navBtn.lastModifiers = Qt.NoModifier;
@@ -164,6 +137,39 @@ ListView {
                 text: "Open in new window (Alt+Click)"
                 icon.name: "window-new"
                 onTriggered: root.openInNewWindowRequested(navBtn.page)
+            }
+
+        }
+
+        contentItem: RowLayout {
+            spacing: Kirigami.Units.mediumSpacing
+
+            BundledIcon {
+                Layout.alignment: Qt.AlignVCenter
+                iconName: navBtn.iconName
+                iconSize: Kirigami.Units.iconSizes.smallMedium
+            }
+
+            Controls.Label {
+                id: navLabel
+
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                Kirigami.MnemonicData.enabled: navBtn.enabled && navBtn.visible
+                Kirigami.MnemonicData.controlType: Kirigami.MnemonicData.ActionElement
+                Kirigami.MnemonicData.label: navBtn.mnemonicName
+                text: navLabel.Kirigami.MnemonicData.richTextLabel
+                textFormat: Text.StyledText
+                font.bold: navBtn.highlighted
+                color: Kirigami.Theme.textColor
+                elide: Text.ElideRight
+
+                Shortcut {
+                    enabled: navLabel.Kirigami.MnemonicData.enabled
+                    sequence: navLabel.Kirigami.MnemonicData.sequence
+                    onActivated: root.navigateRequested(navBtn.page)
+                }
+
             }
 
         }

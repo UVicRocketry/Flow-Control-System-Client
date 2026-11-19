@@ -9,12 +9,21 @@ ColumnLayout {
 
     readonly property bool hasBackend: typeof backend !== "undefined" && backend !== null
     readonly property bool isPlaying: player.playbackState === MediaPlayer.PlayingState
-    readonly property bool isConnecting: player.mediaStatus === MediaPlayer.LoadingMedia || player.mediaStatus === MediaPlayer.BufferingMedia
+    readonly property bool isConnecting: !isPlaying && (player.mediaStatus === MediaPlayer.LoadingMedia || player.mediaStatus === MediaPlayer.BufferingMedia)
     readonly property bool isActive: isPlaying || isConnecting
     readonly property bool hasError: player.error !== MediaPlayer.NoError
     property bool _userStopped: false
     property bool _wasStreaming: false
     property bool _isReconfiguring: false
+
+    function markConnected() {
+        connectTimeoutTimer.stop();
+        if (!_wasStreaming && !_isReconfiguring && hasBackend)
+            backend.info("Camera stream connected.");
+
+        _wasStreaming = true;
+        _isReconfiguring = false;
+    }
 
     function startStream() {
         if (!hasBackend)
@@ -48,6 +57,11 @@ ColumnLayout {
     Component.onCompleted: {
         if (hasBackend)
             backend.configure_camera_player(player);
+
+    }
+    onIsPlayingChanged: {
+        if (isPlaying && !_userStopped)
+            markConnected();
 
     }
     onIsActiveChanged: {
@@ -91,7 +105,7 @@ ColumnLayout {
         interval: 8000
         repeat: false
         onTriggered: {
-            if (videoRoot.isConnecting && !videoRoot._wasStreaming) {
+            if (!videoRoot.isPlaying && !videoRoot._wasStreaming && !videoRoot._userStopped) {
                 videoRoot._userStopped = true;
                 videoRoot._isReconfiguring = false;
                 player.stop();
@@ -117,13 +131,8 @@ ColumnLayout {
             }
         }
         onMediaStatusChanged: function(status) {
-            if (status === MediaPlayer.BufferedMedia && !videoRoot._userStopped) {
-                connectTimeoutTimer.stop();
-                if (!videoRoot._wasStreaming && !videoRoot._isReconfiguring && videoRoot.hasBackend)
-                    backend.info("Camera stream connected.");
-
-                videoRoot._wasStreaming = true;
-                videoRoot._isReconfiguring = false;
+            if ((status === MediaPlayer.BufferedMedia || status === MediaPlayer.LoadedMedia) && !videoRoot._userStopped && videoRoot.isPlaying) {
+                videoRoot.markConnected();
             } else if (status === MediaPlayer.StalledMedia && !videoRoot._userStopped) {
                 if (videoRoot.hasBackend)
                     backend.warn("Camera stream stalled.");
@@ -180,22 +189,15 @@ ColumnLayout {
                 text: videoRoot.hasError ? "Camera Stream Error" : (videoRoot.isConnecting ? "Connecting..." : "IP Camera Feed")
                 explanation: videoRoot.hasError ? player.errorString : "Hardware-decoded H.264 stream (configure IP & credentials in Settings)"
 
-                Controls.Button {
-                    id: placeholderConnectBtn
-
+                IconToolButton {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.topMargin: Kirigami.Units.gridUnit
-                    text: videoRoot.isConnecting ? "Disconnect" : "Connect"
-                    icon.name: videoRoot.isConnecting ? "network-disconnect" : "network-connect"
-                    Kirigami.MnemonicData.enabled: false
+                    flat: false
+                    iconName: videoRoot.isConnecting ? "network-disconnect" : "network-connect"
+                    labelText: videoRoot.isConnecting ? "Disc&onnect" : "C&onnect"
+                    mirrorMnemonic: true
+                    toolTipText: (videoRoot.isConnecting ? "Disconnect camera stream" : "Connect camera stream") + " (Alt+O)"
                     onClicked: videoRoot.toggleStream()
-                    Component.onCompleted: {
-                        if (background && ("text" in background))
-                            background.text = Qt.binding(function() {
-                                return placeholderConnectBtn.Kirigami.MnemonicData.active ? ("&" + placeholderConnectBtn.text) : placeholderConnectBtn.text;
-                            });
-
-                    }
                 }
 
             }

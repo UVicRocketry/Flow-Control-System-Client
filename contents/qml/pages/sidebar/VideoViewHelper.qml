@@ -1,5 +1,5 @@
+import ".."
 import QtQuick
-import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
@@ -26,47 +26,48 @@ ColumnLayout {
         Layout.rightMargin: Kirigami.Units.smallSpacing
         spacing: Kirigami.Units.smallSpacing
 
-        Controls.Button {
-            id: sidebarConnectBtn
-
+        IconToolButton {
             Layout.fillWidth: true
-            spacing: Kirigami.Units.smallSpacing
-            text: root.camActive ? "Disconnect" : "Connect"
-            icon.name: root.camActive ? "network-disconnect" : "network-connect"
+            flat: false
+            centerContent: true
+            iconName: root.camActive ? "network-disconnect" : "network-connect"
+            labelText: root.camActive ? "Disc&onnect" : "C&onnect"
             highlighted: !root.camActive
+            toolTipText: (root.camActive ? "Disconnect camera stream" : "Connect camera stream") + " (Alt+O)"
             onClicked: {
                 if (root.hasBackend)
                     backend.toggle_camera();
 
             }
-            Component.onCompleted: {
-                if (background && ("text" in background))
-                    background.text = Qt.binding(function() {
-                        return sidebarConnectBtn.Kirigami.MnemonicData.active ? ("&" + sidebarConnectBtn.text) : sidebarConnectBtn.text;
-                    });
+        }
 
+        IconToolButton {
+            Layout.fillWidth: true
+            flat: false
+            centerContent: true
+            iconName: ""
+            labelText: root.camMode === "manual" ? "&Mode: Manual" : "&Mode: Auto"
+            toolTipText: "Toggle Auto / Manual camera IP mode (Alt+M)"
+            onClicked: {
+                if (root.hasBackend) {
+                    let nextMode = root.camMode === "manual" ? "auto" : "manual";
+                    backend.set_camera_settings(nextMode, root.camProfile, backend.camera_manual_target);
+                }
             }
         }
 
-        Controls.ComboBox {
+        IconToolButton {
             Layout.fillWidth: true
-            model: ["Mode: Auto", "Mode: Manual"]
-            currentIndex: root.camMode === "manual" ? 1 : 0
-            onActivated: function(idx) {
-                if (root.hasBackend)
-                    backend.set_camera_settings(idx === 1 ? "manual" : "auto", root.camProfile, backend.camera_manual_target);
-
-            }
-        }
-
-        Controls.ComboBox {
-            Layout.fillWidth: true
-            model: ["TCP / Low (Sub)", "UDP / High (5MP)"]
-            currentIndex: root.camProfile === "udp_high" ? 1 : 0
-            onActivated: function(idx) {
-                if (root.hasBackend)
-                    backend.set_camera_settings(root.camMode, idx === 1 ? "udp_high" : "tcp_low", backend.camera_manual_target);
-
+            flat: false
+            centerContent: true
+            iconName: ""
+            labelText: root.camProfile === "udp_high" ? "&Quality: High (UDP)" : "&Quality: Low (TCP)"
+            toolTipText: "Toggle Low (TCP Sub) and High (UDP 5MP) stream quality (Alt+Q)"
+            onClicked: {
+                if (root.hasBackend) {
+                    let nextProf = root.camProfile === "udp_high" ? "tcp_low" : "udp_high";
+                    backend.set_camera_settings(root.camMode, nextProf, backend.camera_manual_target);
+                }
             }
         }
 

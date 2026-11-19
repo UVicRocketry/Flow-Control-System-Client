@@ -37,6 +37,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Kirigami.Units.smallSpacing
                 text: "Emergency Abort"
+                Kirigami.MnemonicData.label: "Emergency &Abort"
                 icon.name: "process-stop"
                 onClicked: root.abortRequested()
             }
@@ -46,6 +47,7 @@ ColumnLayout {
 
                 Layout.fillWidth: true
                 text: "Enable Keybinds (1–5)"
+                Kirigami.MnemonicData.label: "Enable &Keybinds (1–5)"
                 checked: root.keybindsEnabled
                 onToggled: root.keybindsToggled(checked)
             }

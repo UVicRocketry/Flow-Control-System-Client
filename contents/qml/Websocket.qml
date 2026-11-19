@@ -244,15 +244,16 @@ Item {
             }
 
             // 3. Connect / Disconnect
-            Controls.Button {
+            IconToolButton {
                 id: actionButton
 
                 Layout.preferredHeight: Kirigami.Units.gridUnit * 1.8
-                spacing: Kirigami.Units.smallSpacing
-                text: wsRoot.isConnected ? "Disconnect" : (wsRoot.isConnecting ? "Connecting" : "Connect")
-                icon.name: wsRoot.isConnected ? "network-disconnect" : "network-connect"
+                flat: false
+                labelText: wsRoot.isConnected ? "Dis&connect" : (wsRoot.isConnecting ? "Connecting" : "&Connect")
+                iconName: wsRoot.isConnected ? "network-disconnect" : "network-connect"
                 highlighted: !wsRoot.isConnected && !wsRoot.isConnecting
                 enabled: !wsRoot.isConnecting
+                mirrorMnemonic: wsRoot.compact
                 onClicked: {
                     wsRoot.toggleConnection(urlInput.text);
                 }
@@ -319,6 +320,7 @@ Item {
                 // embed full ui in popup
                 Loader {
                     Layout.fillWidth: true
+                    active: topbarPopup.visible
                     sourceComponent: fullUiRowComponent
                 }
 

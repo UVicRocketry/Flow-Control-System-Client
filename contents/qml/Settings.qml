@@ -53,6 +53,8 @@ Kirigami.Dialog {
     }
 
     Kirigami.FormLayout {
+        visible: root.visible
+        enabled: root.visible
         wideMode: false
 
         Controls.ComboBox {
