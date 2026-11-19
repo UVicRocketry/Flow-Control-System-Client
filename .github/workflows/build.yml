@@ -110,6 +110,9 @@ jobs:
           find build/AppDir -name "libfontconfig.so*" -delete || true
           find build/AppDir -name "libfreetype.so*" -delete || true
 
+          # Strip debug symbols from bundled shared libraries (e.g. libpython3.14.so.1.0 is ~31MB unstripped)
+          find build/AppDir/usr/bin/_internal -type f -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true
+
           # Copy desktop entry and icons
           cp packaging/flow-control.desktop build/AppDir/flow-control.desktop
           cp packaging/flow-control.desktop build/AppDir/usr/share/applications/flow-control.desktop

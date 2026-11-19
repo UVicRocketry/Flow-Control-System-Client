@@ -119,10 +119,10 @@ if "kirigami" not in collected_kde_mods:
         f"CRITICAL: 'org/kde/kirigami' was not found in any QML search path: {qml_search_roots}"
     )
 
-# Collect QtWebSockets and QtQuick/Shapes QML modules
+# Collect QtWebSockets, QtQuick/Shapes, and QtMultimedia QML modules
 collected_extra_mods = set()
 for root in qml_search_roots:
-    for mod_name in ["QtWebSockets", "QtQuick/Shapes"]:
+    for mod_name in ["QtWebSockets", "QtQuick/Shapes", "QtMultimedia"]:
         cand_mod = root / mod_name
         if cand_mod.exists() and mod_name not in collected_extra_mods:
             collected_extra_mods.add(mod_name)
@@ -165,6 +165,9 @@ if sys.platform.startswith("linux"):
             # Bundle Kirigami platform theme plugins (org.kde.desktop.so)
             for kf6_plat in l_dir.rglob("kf6/kirigami/platform/*.so*"):
                 add_binary_once(kf6_plat, "PySide6/Qt/plugins/kf6/kirigami/platform")
+            # Bundle QtMultimedia FFmpeg backend plugin for hardware-decoded RTSP
+            for mm_plug in l_dir.rglob("qt6/plugins/multimedia/*ffmpeg*.so*"):
+                add_binary_once(mm_plug, "PySide6/Qt/plugins/multimedia")
 
 # Windows & macOS Craft shared libraries, KIconEnginePlugin, and Breeze Icons
 if sys.platform in ("win32", "darwin") and craft_root.exists():
@@ -176,6 +179,7 @@ if sys.platform in ("win32", "darwin") and craft_root.exists():
         "*qqc2*",
         "*WebSockets*",
         "*QuickShapes*",
+        "*Multimedia*",
         "*intl*",
         "*iconv*",
         "*pcre2*",
@@ -211,6 +215,7 @@ hidden_imports = [
     "config_manager",
     "telemetry_files",
     "telemetry_series",
+    "video_stream",
     "splash",
     "PySide6",
     "PySide6.QtCore",
@@ -226,12 +231,14 @@ hidden_imports = [
     "PySide6.QtOpenGL",
     "PySide6.QtOpenGLWidgets",
     "PySide6.QtWebSockets",
+    "PySide6.QtMultimedia",
 ]
 
 hidden_imports += collect_submodules("PySide6.QtQuickControls2")
 hidden_imports += collect_submodules("PySide6.QtQuick")
 hidden_imports += collect_submodules("PySide6.QtQml")
 hidden_imports += collect_submodules("PySide6.QtWebSockets")
+hidden_imports += collect_submodules("PySide6.QtMultimedia")
 
 excludes = [
     "tkinter",
@@ -260,7 +267,7 @@ a = Analysis(
     optimize=1,
 )
 
-# Strip host-provided libraries that cause fontconfig XML warnings, Mesa/GPU clashes, or GTK3/GLib deadlocks on Linux
+# Strip host-provided libraries and unused Qt/PySide6-Addons modules on Linux
 if sys.platform.startswith("linux"):
     EXCLUDED_HOST_LIBS = [
         "libfontconfig.so",
@@ -277,11 +284,82 @@ if sys.platform.startswith("linux"):
         "libgthread-2.0.so",
         "libharfbuzz.so",
         "libmount.so",
+        # Host GTK3 stack (used by host libqgtk3.so if loaded)
+        "libgtk-3.so",
+        "libgdk-3.so",
+        "libcairo",
+        "libpango",
+        "libatk",
+        "libatspi",
+        "libepoxy.so",
+        "libcolord.so",
+        "libcloudproviders.so",
     ]
-    a.binaries = [
-        item for item in a.binaries
-        if not any(ex in item[0] for ex in EXCLUDED_HOST_LIBS)
+
+    EXCLUDED_PYSIDE_TOKENS = [
+        # Unused PySide6-Addons modules (only QtWebSockets is needed)
+        "Quick3D",
+        "Qt63D",
+        "Qt3D",
+        "Charts",
+        "Graphs",
+        "Location",
+        "Positioning",
+        "SpatialAudio",
+        "Qt6Pdf",
+        "QtPdf",
+        "Sensors",
+        "VirtualKeyboard",
+        "WebChannel",
+        "RemoteObjects",
+        "Scxml",
+        "StateMachine",
+        "TextToSpeech",
+        "SerialPort",
+        "SerialBus",
+        "Bluetooth",
+        "Qt6Nfc",
+        "QtNfc",
+        "HttpServer",
+        "DataVisualization",
+        "Qt5Compat",
+        "QuickTimeline",
+        "QuickEffectMaker",
+        "WebView",
+        "Qt6Coap",
+        "Qt6Mqtt",
+        "Qt6OpcUa",
+        "Lottie",
+        "Designer",
+        "Qt6Help",
+        "Qt6Sql",
+        "Qt6Test",
+        # Unused QtQuickControls2 styles on Linux (keep Basic + org.kde.desktop)
+        "FluentWinUI3",
+        "QuickControls2Imagine",
+        "/Imagine/",
+        "QuickControls2Material",
+        "/Material/",
+        "QuickControls2Universal",
+        "/Universal/",
+        "QuickControls2Fusion",
+        "/Fusion/",
+        "LabsStyleKit",
+        "StyleKit",
+        # Unused Qt translations
+        "PySide6/Qt/translations/",
     ]
+
+    def _keep_linux_entry(dest_path: str) -> bool:
+        norm = dest_path.replace("\\", "/")
+        if any(ex in norm for ex in EXCLUDED_HOST_LIBS):
+            return False
+        if norm.startswith("PySide6/") and any(tok in norm for tok in EXCLUDED_PYSIDE_TOKENS):
+            return False
+        return True
+
+    a.binaries = [item for item in a.binaries if _keep_linux_entry(item[0])]
+    a.datas = [item for item in a.datas if _keep_linux_entry(item[0])]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
