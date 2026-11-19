@@ -77,6 +77,13 @@ def is_dev_environment() -> bool:
     if os.environ.get("FLOW_CONTROL_USE_USER_CONFIG") == "1":
         return False
 
+    if (
+        os.environ.get("APPIMAGE")
+        or os.environ.get("SHARUN_DIR")
+        or os.environ.get("APPDIR")
+    ):
+        return False
+
     return not getattr(sys, "frozen", False)
 
 
