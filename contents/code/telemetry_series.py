@@ -9,8 +9,19 @@ import bisect
 import json
 import math
 import time
+from typing import Any
+
+try:
+    import numpy as np
+
+    HAS_NUMPY = True
+except ImportError:  # pragma: no cover - stdlib fallback when numpy is absent
+    np = None  # type: ignore[assignment]
+    HAS_NUMPY = False
 
 from telemetry_files import extract_flat_values
+
+DEFAULT_MAX_LIVE_SAMPLES = 50_000
 
 
 UNIT_ALIASES: dict[str, str] = {
@@ -274,12 +285,13 @@ def ingest_ws_telemetry_frames(
     live_seconds: list,
     live_t0: float | None,
     latest_telemetry: dict,
+    max_live_samples: int = DEFAULT_MAX_LIVE_SAMPLES,
 ) -> tuple[bool, list, float | None, dict]:
     """
     parses incoming WebSocket text frames (supporting both single JSON packets,
-    multi-line JSONL streams, or pre-parsed message dicts) and appends samples
-    to live_records.
-    returns (new_channels_added, ingested_records, live_t0, latest_telemetry).
+    multi-line JSONL streams, or pre-parsed message dicts), appends samples to
+    a bounded live_records ring buffer, and returns
+    (new_channels_added, ingested_records, live_t0, latest_telemetry).
     """
     if not raw_message:
         return False, [], live_t0, latest_telemetry
@@ -322,7 +334,179 @@ def ingest_ws_telemetry_frames(
             "values": merged_vals,
         }
 
+    if max_live_samples > 0 and len(live_records) > max_live_samples:
+        overflow = len(live_records) - max_live_samples
+        del live_records[:overflow]
+        del live_seconds[:overflow]
+
     return new_channels, ingested_records, live_t0, latest_telemetry
+
+
+class ColumnarTelemetryBuffer:
+    """
+    Bounded columnar float64 storage for time-series telemetry.
+    Uses numpy float64 arrays when available and falls back to Python float
+    lists when numpy is absent.
+    """
+
+    def __init__(self, max_samples: int = DEFAULT_MAX_LIVE_SAMPLES):
+        self.max_samples = int(max_samples)
+        self._seconds: list[float] = []
+        self._columns: dict[str, list[float]] = {}
+        self._np_seconds: Any = None
+        self._np_columns: dict[str, Any] = {}
+
+    def clear(self) -> None:
+        self._seconds.clear()
+        self._columns.clear()
+        self._np_seconds = None
+        self._np_columns.clear()
+
+    @property
+    def seconds(self) -> list[float]:
+        return self._seconds
+
+    def _invalidate_np_cache(self) -> None:
+        self._np_seconds = None
+        self._np_columns.clear()
+
+    def _trim_to_capacity(self) -> None:
+        if self.max_samples <= 0 or len(self._seconds) <= self.max_samples:
+            return
+        overflow = len(self._seconds) - self.max_samples
+        del self._seconds[:overflow]
+        for vals in self._columns.values():
+            del vals[:overflow]
+
+    def append_records(self, records: list[dict]) -> None:
+        """Appends `{t, values}` records into aligned columnar arrays."""
+        if not records:
+            return
+        self._invalidate_np_cache()
+        for rec in records:
+            t_val = float(rec.get("t", 0.0))
+            vals = rec.get("values", {})
+            n_prev = len(self._seconds)
+            self._seconds.append(t_val)
+            for ch in vals:
+                if ch not in self._columns:
+                    self._columns[ch] = [math.nan] * n_prev
+            for ch, col_vals in self._columns.items():
+                raw = vals.get(ch)
+                col_vals.append(float(raw) if raw is not None else math.nan)
+        self._trim_to_capacity()
+
+    def load_records(self, records: list[dict], seconds_list: list[float]) -> None:
+        """Replaces buffer contents with a loaded dataset."""
+        self.clear()
+        if not records:
+            return
+        if len(seconds_list) == len(records):
+            seeded = [
+                {"t": sec, "values": rec.get("values", {})}
+                for sec, rec in zip(seconds_list, records)
+            ]
+            self.append_records(seeded)
+        else:
+            self.append_records(records)
+
+    def _resolve_channel_key(self, channel: str) -> str:
+        if channel in self._columns:
+            return channel
+        if channel == "M_RUN_TANK" and "L_RUN_TANK" in self._columns:
+            return "L_RUN_TANK"
+        if channel == "L_RUN_TANK" and "M_RUN_TANK" in self._columns:
+            return "M_RUN_TANK"
+        return channel
+
+    def slice_channel(
+        self, channel: str, win_start: float, win_end: float
+    ) -> tuple[Any, Any]:
+        """Slices valid samples for `channel` within `[win_start, win_end]`."""
+        key = self._resolve_channel_key(channel)
+        if not self._seconds or key not in self._columns:
+            return [], []
+
+        if HAS_NUMPY and np is not None:
+            if self._np_seconds is None:
+                self._np_seconds = np.asarray(self._seconds, dtype=np.float64)
+            col_arr = self._np_columns.get(key)
+            if col_arr is None:
+                col_arr = np.asarray(self._columns[key], dtype=np.float64)
+                self._np_columns[key] = col_arr
+            idx_l = int(np.searchsorted(self._np_seconds, win_start, side="left"))
+            idx_r = int(np.searchsorted(self._np_seconds, win_end, side="right"))
+            if idx_l >= idx_r:
+                return [], []
+            sub_t = self._np_seconds[idx_l:idx_r]
+            sub_v = col_arr[idx_l:idx_r]
+            finite = np.isfinite(sub_v)
+            return sub_t[finite], sub_v[finite]
+
+        idx_l = bisect.bisect_left(self._seconds, win_start)
+        idx_r = bisect.bisect_right(self._seconds, win_end)
+        col_list = self._columns[key]
+        t_out: list[float] = []
+        v_out: list[float] = []
+        for idx in range(idx_l, idx_r):
+            val = col_list[idx]
+            if not math.isnan(val):
+                t_out.append(self._seconds[idx])
+                v_out.append(val)
+        return t_out, v_out
+
+    def query_series(
+        self,
+        channel: str,
+        t_start: float,
+        t_end: float,
+        max_buckets: int = 300,
+        filter_outliers_3std: bool = False,
+        smoothing_window: int = 1,
+        source_unit: str | None = None,
+        target_unit: str | None = None,
+    ) -> dict:
+        """Queries a single channel from columnar storage with unit conversion."""
+        win_start, win_end = _compute_window_bounds(self._seconds, t_start, t_end)
+        if not self._seconds or not channel:
+            return _empty_series_result(win_start, win_end)
+        t_vals, v_vals = self.slice_channel(channel, win_start, win_end)
+        series = _series_from_channel_arrays(
+            t_vals,
+            v_vals,
+            win_start,
+            win_end,
+            max_buckets,
+            filter_outliers_3std,
+            smoothing_window,
+        )
+        return apply_unit_conversion_to_series(series, source_unit, target_unit)
+
+    def query_batch(
+        self, requests: list, source_units: dict[str, str] | None = None
+    ) -> dict:
+        """Queries multiple cards against columnar storage in one pass."""
+        results: dict = {}
+        if not requests:
+            return results
+        src_map = source_units or {}
+        for req in requests:
+            if not isinstance(req, dict):
+                continue
+            card_id = str(req.get("index", ""))
+            ch = str(req.get("channel", ""))
+            src_u = req.get("sourceUnit") or src_map.get(ch)
+            results[card_id] = self.query_series(
+                channel=ch,
+                t_start=float(req.get("tStart", -30.0)),
+                t_end=float(req.get("tEnd", -1.0)),
+                max_buckets=int(req.get("maxBuckets", 300)),
+                filter_outliers_3std=bool(req.get("filterOutliers3Std", False)),
+                smoothing_window=int(req.get("smoothingWindow", 1)),
+                source_unit=src_u,
+                target_unit=req.get("targetUnit"),
+            )
+        return results
 
 
 def _compute_window_bounds(
@@ -414,8 +598,11 @@ def _finalize_buckets(
     return ts, vs, min_vs, max_vs
 
 
-def _compute_mean_std(v_vals: list[float]) -> tuple[float, float]:
-    """computes population (mean, std) for a non-empty list of floats."""
+def _compute_mean_std(v_vals: Any) -> tuple[float, float]:
+    """computes population (mean, std) for a non-empty sequence of floats."""
+    if HAS_NUMPY and np is not None:
+        arr = np.asarray(v_vals, dtype=np.float64)
+        return float(np.mean(arr)), float(np.std(arr))
     n = len(v_vals)
     sum_v = 0.0
     sum_sq = 0.0
@@ -425,6 +612,82 @@ def _compute_mean_std(v_vals: list[float]) -> tuple[float, float]:
     mean_v = sum_v / n
     variance = max(0.0, (sum_sq / n) - (mean_v * mean_v)) if n > 1 else 0.0
     return mean_v, math.sqrt(variance)
+
+
+def _smooth_bucket_means(vs_arr: Any, smoothing_window: int) -> list[float]:
+    sw = max(1, int(smoothing_window))
+    if sw <= 1 or len(vs_arr) <= 1:
+        return [float(x) for x in vs_arr]
+    half_w = sw // 2
+    n_b = len(vs_arr)
+    out = []
+    for i in range(n_b):
+        lo = max(0, i - half_w)
+        hi = min(n_b, i + half_w + 1)
+        out.append(float(np.mean(vs_arr[lo:hi])))
+    return out
+
+
+def _series_numpy(
+    t_vals: Any,
+    v_vals: Any,
+    win_start: float,
+    win_end: float,
+    max_buckets: int,
+    filter_outliers_3std: bool,
+    smoothing_window: int,
+) -> dict:
+    t_arr = np.asarray(t_vals, dtype=np.float64)
+    v_arr = np.asarray(v_vals, dtype=np.float64)
+    raw_n = int(v_arr.size)
+    max_b = max(10, int(max_buckets))
+    dt_span = max(win_end - win_start, 1e-3)
+    bucket_size = dt_span / float(max_b)
+    inv_bucket_size = float(max_b) / dt_span
+
+    mean_v = float(np.mean(v_arr))
+    std_v = float(np.std(v_arr))
+    t_clean, v_clean = t_arr, v_arr
+    clean_mean = mean_v
+    if filter_outliers_3std and raw_n >= 4 and std_v > 1e-6:
+        mask = np.abs(v_arr - mean_v) <= 3.0 * std_v
+        if bool(np.any(mask)):
+            t_clean = t_arr[mask]
+            v_clean = v_arr[mask]
+            clean_mean = float(np.mean(v_clean))
+
+    b_idx = np.floor(t_clean * inv_bucket_size).astype(np.int64)
+    if b_idx.size > 1 and bool(np.any(b_idx[1:] < b_idx[:-1])):
+        order = np.argsort(b_idx, kind="mergesort")
+        b_idx = b_idx[order]
+        v_sorted = v_clean[order]
+    else:
+        v_sorted = v_clean
+
+    unique_b, start_idx, counts = np.unique(
+        b_idx, return_index=True, return_counts=True
+    )
+    ts_arr = np.clip((unique_b + 0.5) * bucket_size, win_start, win_end)
+    vs_arr = np.add.reduceat(v_sorted, start_idx) / counts
+    min_vs_arr = np.minimum.reduceat(v_sorted, start_idx)
+    max_vs_arr = np.maximum.reduceat(v_sorted, start_idx)
+
+    return {
+        "ts": [float(x) for x in ts_arr],
+        "vs": _smooth_bucket_means(vs_arr, smoothing_window),
+        "minVs": [float(x) for x in min_vs_arr],
+        "maxVs": [float(x) for x in max_vs_arr],
+        "min": float(np.min(v_clean)),
+        "max": float(np.max(v_clean)),
+        "mean": clean_mean,
+        "std": std_v,
+        "latest": float(v_clean[-1]),
+        "rawCount": raw_n,
+        "filteredCount": int(v_clean.size),
+        "bucketCount": int(unique_b.size),
+        "tMin": win_start,
+        "tMax": win_end,
+    }
 
 
 def _bucket_all_samples(
@@ -540,8 +803,8 @@ def _try_bucket_filtered_samples(
 
 
 def _series_from_channel_arrays(
-    t_vals: list[float],
-    v_vals: list[float],
+    t_vals: Any,
+    v_vals: Any,
     win_start: float,
     win_end: float,
     max_buckets: int = 300,
@@ -552,6 +815,17 @@ def _series_from_channel_arrays(
     raw_n = len(v_vals)
     if raw_n == 0:
         return _empty_series_result(win_start, win_end)
+
+    if HAS_NUMPY and np is not None:
+        return _series_numpy(
+            t_vals,
+            v_vals,
+            win_start,
+            win_end,
+            max_buckets,
+            filter_outliers_3std,
+            smoothing_window,
+        )
 
     max_b = max(10, int(max_buckets))
     dt_span = max(win_end - win_start, 1e-3)

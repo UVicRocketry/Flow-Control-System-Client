@@ -5,13 +5,12 @@ Loads contents/qml/Splash.qml and closes when the main window renders its first 
 """
 
 from pathlib import Path
-from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QGuiApplication, QColor
-from PySide6.QtQuick import QQuickView
-from PySide6.QtCore import Qt, QUrl, QTimer, QPoint
-from __feature__ import snake_case, true_property
 
-assert snake_case, true_property
+from PySide6.QtCore import QPoint, Qt, QTimer, QUrl
+from PySide6.QtGui import QColor, QGuiApplication
+from PySide6.QtQuick import QQuickView
+from PySide6.QtWidgets import QApplication
+
 
 class SplashScreen(QQuickView):
     """Lightweight Python controller for the QML Splash.qml window."""
@@ -19,72 +18,71 @@ class SplashScreen(QQuickView):
     def __init__(self, qml_dir: Path | str, icon_path: Path | str | None = None):
         super().__init__()
         self._closed = False
+        self._on_frame = None
 
-        # Frameless, translucent, stay-on-top splash window
-        self.flags = (
+        self.setFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.SplashScreen
         )
-        self.color = QColor(Qt.GlobalColor.transparent)
-        self.resize_mode = QQuickView.ResizeMode.SizeViewToRootObject
+        self.setColor(QColor(Qt.GlobalColor.transparent))
+        self.setResizeMode(QQuickView.ResizeMode.SizeViewToRootObject)
 
         qml_path = Path(qml_dir) / "Splash.qml"
+        self.setSource(QUrl.fromLocalFile(str(qml_path)))
 
-        self.source = QUrl.from_local_file(str(qml_path))
-
-        # Pass custom icon URL if provided
-        root = self.root_object()
+        root = self.rootObject()
         if root and icon_path and Path(icon_path).exists():
-            root.set_property("iconSource", QUrl.from_local_file(str(icon_path)))
+            root.setProperty("iconSource", QUrl.fromLocalFile(str(icon_path)))
 
         self._center_on_screen()
 
-    def _center_on_screen(self):
+    def _center_on_screen(self) -> None:
         """Centers the slim QML splash window on the primary monitor."""
-        screen = QGuiApplication.primary_screen
-        if callable(screen):
-            screen = screen()
+        screen = QGuiApplication.primaryScreen()
         if screen:
-            geo = screen.available_geometry
-            w = self.width if self.width > 0 else 340
-            h = self.height if self.height > 0 else 160
+            geo = screen.availableGeometry()
+            w = self.width() if self.width() > 0 else 340
+            h = self.height() if self.height() > 0 else 160
             x = geo.x() + (geo.width() - w) // 2
             y = geo.y() + (geo.height() - h) // 2
-            self.position = QPoint(x, y)
+            self.setPosition(QPoint(x, y))
 
-    def set_status(self, text: str):
+    def set_status(self, text: str) -> None:
         """Updates the status text property in Splash.qml and flushes GUI events."""
-        root = self.root_object()
+        root = self.rootObject()
         if root:
-            root.set_property("statusText", text)
-        QApplication.process_events()
+            root.setProperty("statusText", text)
+        QApplication.processEvents()
 
-    def finish(self, window=None):
+    def finish(self, window=None) -> None:
         """Closes the splash window safely on the main thread after first frame."""
-        def close_safely():
+
+        def close_safely() -> None:
             if self._closed:
                 return
             self._closed = True
-            root = self.root_object()
+            root = self.rootObject()
             if root is not None:
-                root.set_property("visible", False)
+                root.setProperty("visible", False)
             self.close()
-            self.delete_later()
-            if window is not None and hasattr(window, "request_activate"):
-                window.request_activate()
+            self.deleteLater()
+            if window is not None and hasattr(window, "requestActivate"):
+                window.requestActivate()
 
-        frame_signal = getattr(window, "frameSwapped", None) or getattr(window, "frame_swapped", None)
+        frame_signal = getattr(window, "frameSwapped", None)
         if window is not None and frame_signal is not None:
-            def on_frame():
+
+            def on_frame() -> None:
                 try:
-                    frame_signal.disconnect(self._on_frame)
+                    if self._on_frame is not None:
+                        frame_signal.disconnect(self._on_frame)
                 except Exception:
                     pass
-                QTimer.single_shot(0, close_safely)
+                QTimer.singleShot(0, close_safely)
 
             self._on_frame = on_frame
             frame_signal.connect(self._on_frame, Qt.ConnectionType.QueuedConnection)
-            QTimer.single_shot(1500, close_safely)
+            QTimer.singleShot(1500, close_safely)
         else:
             close_safely()

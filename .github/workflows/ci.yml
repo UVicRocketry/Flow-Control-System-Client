@@ -18,7 +18,7 @@ jobs:
           cache: pip
 
       - name: Install lint and test dependencies
-        run: python -m pip install --upgrade pip ruff pytest PySide6-Essentials
+        run: python -m pip install --upgrade pip ruff pytest PySide6-Essentials numpy platformdirs
 
       - name: Run Ruff lint checks
         run: ruff check contents/code tools tests --fix
@@ -34,4 +34,6 @@ jobs:
           "${QMLLINT_BIN}" -I contents/qml "${qml_files[@]}"
 
       - name: Run pytest
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: pytest -v

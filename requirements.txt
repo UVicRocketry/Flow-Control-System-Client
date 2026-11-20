@@ -1,2 +1,4 @@
 PySide6-Essentials
 PySide6-Addons
+numpy>=1.26.0
+platformdirs>=4.0.0

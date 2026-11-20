@@ -2,6 +2,8 @@
 # Runtime: Python, PySide6, required Qt6 modules, KDE Kirigami, Multimedia (RTSP/FFmpeg)
 python
 python-pip
+python-numpy
+python-platformdirs
 pyside6
 kirigami
 qqc2-desktop-style

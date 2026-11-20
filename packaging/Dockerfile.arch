@@ -7,7 +7,7 @@ COPY requirements.txt /tmp/requirements.txt
 
 RUN PKGS=$(tr -d '\r' < /tmp/arch-packages.txt | grep -vE '^[[:space:]]*(#|$)' | tr '\n' ' ') && \
     pacman -Syu --noconfirm --needed $PKGS && \
-    (tr -d '\r' < /tmp/requirements.txt | grep -ivE '^[[:space:]]*(#|pyside6|shiboken6|$)' || true) > /tmp/requirements-extra.txt && \
+    (tr -d '\r' < /tmp/requirements.txt | grep -ivE '^[[:space:]]*(#|pyside6|shiboken6|numpy|platformdirs|$)' || true) > /tmp/requirements-extra.txt && \
     if [ -s /tmp/requirements-extra.txt ]; then \
         python -m pip install --break-system-packages --no-cache-dir -r /tmp/requirements-extra.txt; \
     fi && \
@@ -38,6 +38,9 @@ RUN --mount=type=secret,id=github_token \
             "$pydir"/lib2to3 "$pydir"/tkinter \
             "$pydir"/site-packages/pip* "$pydir"/site-packages/setuptools* \
             "$pydir"/site-packages/wheel* "$pydir"/site-packages/pkg_resources* \
+            "$pydir"/site-packages/numpy/tests "$pydir"/site-packages/numpy/*/tests \
+            "$pydir"/site-packages/numpy/doc "$pydir"/site-packages/numpy/_core/include \
+            "$pydir"/site-packages/numpy/f2py \
             "$pydir"/site-packages/PySide6/include \
             "$pydir"/site-packages/PySide6/typesystems \
             "$pydir"/site-packages/PySide6/glue \

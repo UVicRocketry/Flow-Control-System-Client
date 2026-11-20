@@ -11,6 +11,11 @@ import shutil
 import sys
 from pathlib import Path
 
+try:
+    from platformdirs import user_config_dir
+except ImportError:  # pragma: no cover - optional fallback when platformdirs is absent
+    user_config_dir = None  # type: ignore[assignment]
+
 CURRENT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = CURRENT_DIR.parent.parent
 
@@ -44,22 +49,27 @@ def get_default_config_dir() -> Path:
 def get_user_config_dir() -> Path:
     """
     returns the standard OS-specific user configuration directory:
-    - linux / unix: $XDG_CONFIG_HOME/flow-control (default ~/.config/flow-control)
-    - windows: %APPDATA%/FlowControl (default ~/AppData/Roaming/FlowControl)
+    - linux / unix: $XDG_CONFIG_HOME/flow-control (or platformdirs fallback)
+    - windows: %APPDATA%/FlowControl (or platformdirs fallback)
     - macos: ~/Library/Application Support/FlowControl
     """
     if sys.platform.startswith("win32"):
         appdata = os.environ.get("APPDATA")
         if appdata:
             return Path(appdata) / "FlowControl"
+        if user_config_dir is not None:
+            return Path(user_config_dir("FlowControl", appauthor=False, roaming=True))
         return Path.home() / "AppData" / "Roaming" / "FlowControl"
-    elif sys.platform == "darwin":
+    if sys.platform == "darwin":
+        if user_config_dir is not None:
+            return Path(user_config_dir("FlowControl", appauthor=False))
         return Path.home() / "Library" / "Application Support" / "FlowControl"
-    else:
-        xdg_config = os.environ.get("XDG_CONFIG_HOME")
-        if xdg_config:
-            return Path(xdg_config) / "flow-control"
-        return Path.home() / ".config" / "flow-control"
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config:
+        return Path(xdg_config) / "flow-control"
+    if user_config_dir is not None:
+        return Path(user_config_dir("flow-control", appauthor=False))
+    return Path.home() / ".config" / "flow-control"
 
 
 def is_dev_environment() -> bool:
