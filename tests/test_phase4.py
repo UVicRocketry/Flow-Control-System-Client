@@ -57,7 +57,13 @@ def _temp_config_patch_stack(tmp_path: Path) -> ExitStack:
         shutil.copy2(src_graphs, graphs_file)
 
     stack = ExitStack()
-    for mod in (config_manager, config_store, log_manager, telemetry_files, telemetry_store):
+    for mod in (
+        config_manager,
+        config_store,
+        log_manager,
+        telemetry_files,
+        telemetry_store,
+    ):
         if hasattr(mod, "CONFIG_DIR"):
             stack.enter_context(mock.patch.object(mod, "CONFIG_DIR", cfg_dir))
         if hasattr(mod, "CONFIG_FILE"):
@@ -65,7 +71,9 @@ def _temp_config_patch_stack(tmp_path: Path) -> ExitStack:
         if hasattr(mod, "GRAPHS_CONFIG_DIR"):
             stack.enter_context(mock.patch.object(mod, "GRAPHS_CONFIG_DIR", graphs_dir))
         if hasattr(mod, "GRAPHS_CONFIG_FILE"):
-            stack.enter_context(mock.patch.object(mod, "GRAPHS_CONFIG_FILE", graphs_file))
+            stack.enter_context(
+                mock.patch.object(mod, "GRAPHS_CONFIG_FILE", graphs_file)
+            )
     return stack
 
 
@@ -159,9 +167,7 @@ class TestSplitControllersAndBackendFacade(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls._app = (
-            QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
-        )
+        cls._app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
 
     def test_actuator_controller_interlocks_and_abort(self) -> None:
         ctrl = ActuatorController()
@@ -189,6 +195,7 @@ class TestSplitControllersAndBackendFacade(unittest.TestCase):
         self.assertFalse(ctrl.actuate_valve("QD", "CONNECT", send_ws, warns.append))
 
     def test_backend_facade_no_feature_and_init_channels(self) -> None:
+        self.assertNotIn("PySide6.QtWidgets", sys.modules)
         self.assertTrue(hasattr(QtCore.QObject, "setObjectName"))
         self.assertFalse(hasattr(QtCore.QObject, "set_object_name"))
         for py_path in Path(CODE_DIR).glob("*.py"):
@@ -198,7 +205,9 @@ class TestSplitControllersAndBackendFacade(unittest.TestCase):
                     self.assertNotEqual(node.module, "__feature__", str(py_path))
                 elif isinstance(node, ast.Import):
                     self.assertNotIn(
-                        "__feature__", [alias.name for alias in node.names], str(py_path)
+                        "__feature__",
+                        [alias.name for alias in node.names],
+                        str(py_path),
                     )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -214,9 +223,7 @@ class TestSplitControllersAndBackendFacade(unittest.TestCase):
                             "type": "init",
                             "armed": True,
                             "valves": {"N2OV": "OPEN"},
-                            "channels": {
-                                "P_CUSTOM": {"unit": "psi", "pin": "AIN90"}
-                            },
+                            "channels": {"P_CUSTOM": {"unit": "psi", "pin": "AIN90"}},
                         }
                     )
                 )

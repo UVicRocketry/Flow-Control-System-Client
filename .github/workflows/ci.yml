@@ -34,4 +34,6 @@ jobs:
           "${QMLLINT_BIN}" -I contents/qml "${qml_files[@]}"
 
       - name: Run pytest
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: pytest -v

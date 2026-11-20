@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 
 from PySide6 import QtCore
-from PySide6.QtWidgets import QFileDialog
 
 from actuator_controller import ActuatorController
 from camera_controller import CameraController
@@ -63,9 +62,7 @@ class Backend(QtCore.QObject):
         self.config_store = ConfigStore(self.log_manager, self)
         self.camera_controller = CameraController(self.config_store, self)
         self.actuator_controller = ActuatorController(self)
-        self.telemetry_store = TelemetryStore(
-            self.config_store, self.log_manager, self
-        )
+        self.telemetry_store = TelemetryStore(self.config_store, self.log_manager, self)
 
         self._wire_controller_signals()
         self.load_config()
@@ -99,12 +96,8 @@ class Backend(QtCore.QObject):
         self.config_store.min_log_level_changed.connect(self.min_log_level_changed)
         self.config_store.external_data_changed.connect(self.external_data_changed)
 
-        self.camera_controller.camera_config_changed.connect(
-            self.camera_config_changed
-        )
-        self.camera_controller.camera_active_changed.connect(
-            self.camera_active_changed
-        )
+        self.camera_controller.camera_config_changed.connect(self.camera_config_changed)
+        self.camera_controller.camera_active_changed.connect(self.camera_active_changed)
         self.camera_controller.camera_toggle_requested.connect(
             self.camera_toggle_requested
         )
@@ -573,9 +566,7 @@ class Backend(QtCore.QObject):
             and not self._prompted_server_recording
         ):
             self._prompted_server_recording = True
-            rec_name = str(
-                msg.get("recording_filename") or msg.get("active_log") or ""
-            )
+            rec_name = str(msg.get("recording_filename") or msg.get("active_log") or "")
             self.server_recording_active_on_connect.emit(rec_name)
 
     def _handle_valve_state_msg(self, msg: dict) -> None:
@@ -612,9 +603,7 @@ class Backend(QtCore.QObject):
             "armed": lambda m: self.set_armed(bool(m.get("armed", False))),
             "remote_data_list": self.log_manager.handle_remote_data_list_msg,
             "remote_data_content": self._handle_remote_data_content_msg,
-            "alert": lambda m: self.log(
-                m.get("level", "WARN"), m.get("message", "")
-            ),
+            "alert": lambda m: self.log(m.get("level", "WARN"), m.get("message", "")),
         }
         handler = handlers.get(msg_type)
         if handler is not None:
@@ -688,6 +677,8 @@ class Backend(QtCore.QObject):
     @QtCore.Slot(str, result=str)
     @QtCore.Slot(result=str)
     def open_data(self, open_where: str = "") -> str:
+        from PySide6.QtWidgets import QFileDialog
+
         open_dir = open_where if open_where else str(Path.home())
         file_filter = (
             "Telemetry Files (*.csv *.jsonl);;"
