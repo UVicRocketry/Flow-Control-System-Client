@@ -24,7 +24,7 @@ The UI utilizes KDE's **Kirigami** framework (`org.kde.kirigami`) and Qt Quick C
 - **Ubuntu / Debian / WSL**:
   ```sh
   sudo apt-get install -y \
-    python3 python3-pip \
+    python3 python3-pip python3-numpy python3-platformdirs \
     qml6-module-org-kde-kirigami \
     qml6-module-org-kde-qqc2desktopstyle \
     qml6-module-qtquick-controls \
@@ -40,7 +40,7 @@ The UI utilizes KDE's **Kirigami** framework (`org.kde.kirigami`) and Qt Quick C
 - **Arch Linux**:
   ```sh
   sudo pacman -S --needed \
-    python \
+    python python-numpy python-platformdirs \
     pyside6 \
     kirigami \
     qqc2-desktop-style \
@@ -60,7 +60,7 @@ The UI utilizes KDE's **Kirigami** framework (`org.kde.kirigami`) and Qt Quick C
 - **Fedora**:
   ```sh
   sudo dnf install \
-    python3-pyside6 \
+    python3-pyside6 python3-numpy python3-platformdirs \
     kf6-kirigami \
     kf6-qqc2-desktop-style \
     kf6-kiconthemes \
@@ -82,6 +82,8 @@ The UI utilizes KDE's **Kirigami** framework (`org.kde.kirigami`) and Qt Quick C
   pacman -S --needed \
     mingw-w64-ucrt-x86_64-python \
     mingw-w64-ucrt-x86_64-python-pip \
+    mingw-w64-ucrt-x86_64-python-numpy \
+    mingw-w64-ucrt-x86_64-python-platformdirs \
     mingw-w64-ucrt-x86_64-pyside6 \
     mingw-w64-ucrt-x86_64-kirigami \
     mingw-w64-ucrt-x86_64-qqc2-desktop-style \
