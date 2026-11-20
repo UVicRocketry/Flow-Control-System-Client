@@ -7,16 +7,15 @@ Starts PySide6 Application and loads QML interface.
 import os
 import signal
 import sys
+import tempfile
 from pathlib import Path
 
-from splash import SplashScreen
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWidgets import QApplication, QMessageBox
-from __feature__ import snake_case, true_property
 
-assert snake_case, true_property
+from splash import SplashScreen
 
 # Ensure clean imports from local code directory
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -32,8 +31,7 @@ IS_PACKAGED = IS_FROZEN or IS_APPIMAGE
 
 
 def get_resource_dir() -> Path:
-    """Returns directory containing qml and assets,
-    handling PyInstaller sys._MEIPASS."""
+    """Returns directory containing qml and assets, handling PyInstaller."""
     if IS_FROZEN:
         bundle_path = Path(sys._MEIPASS)
         return (
@@ -41,7 +39,7 @@ def get_resource_dir() -> Path:
             if (bundle_path / "contents").exists()
             else bundle_path
         )
-    return CURRENT_DIR.parent  # contents
+    return CURRENT_DIR.parent
 
 
 def resolve_app_icon(contents_dir: Path) -> Path:
@@ -52,10 +50,12 @@ def resolve_app_icon(contents_dir: Path) -> Path:
     return icon_path
 
 
-def _select_bundled_theme_name(bundled_icons: Path, scheme: Qt.ColorScheme | None = None) -> str:
-    """Returns the appropriate bundled icon theme name ('breeze-fallback-light' or 'breeze-fallback')."""
+def _select_bundled_theme_name(
+    bundled_icons: Path, scheme: Qt.ColorScheme | None = None
+) -> str:
+    """Returns bundled icon theme name ('breeze-fallback-light' or 'breeze-fallback')."""
     if scheme is None:
-        scheme = QGuiApplication.style_hints().color_scheme
+        scheme = QGuiApplication.styleHints().colorScheme()
     is_light = scheme == Qt.ColorScheme.Light or (
         scheme == Qt.ColorScheme.Unknown
         and QGuiApplication.palette().window().color().lightness() > 128
@@ -65,6 +65,59 @@ def _select_bundled_theme_name(bundled_icons: Path, scheme: Qt.ColorScheme | Non
     return "breeze-fallback"
 
 
+def _configure_win_icon_themes(bundled_icons: Path) -> None:
+    if not bundled_icons.exists():
+        QIcon.setThemeName("breeze")
+        QIcon.setFallbackThemeName("breeze")
+        return
+
+    QIcon.setThemeSearchPaths([str(bundled_icons)])
+    theme_name = _select_bundled_theme_name(bundled_icons)
+    QIcon.setThemeName(theme_name)
+    QIcon.setFallbackThemeName(theme_name)
+
+    def _on_color_scheme_changed(scheme: Qt.ColorScheme) -> None:
+        new_theme = _select_bundled_theme_name(bundled_icons, scheme)
+        QIcon.setThemeName(new_theme)
+        QIcon.setFallbackThemeName(new_theme)
+
+    QGuiApplication.styleHints().colorSchemeChanged.connect(
+        _on_color_scheme_changed
+    )
+
+
+def _configure_unix_icon_themes(bundled_icons: Path) -> None:
+    if sys.platform.startswith("linux"):
+        host_icon_dirs = [
+            str(Path.home() / ".local/share/icons"),
+            "/usr/share/icons",
+            "/usr/local/share/icons",
+        ]
+        QIcon.setThemeSearchPaths(host_icon_dirs + QIcon.themeSearchPaths())
+
+    if not bundled_icons.exists():
+        QIcon.setFallbackThemeName("breeze")
+        return
+
+    QIcon.setThemeSearchPaths(QIcon.themeSearchPaths() + [str(bundled_icons)])
+    theme_name = _select_bundled_theme_name(bundled_icons)
+    if not QIcon.themeName():
+        QIcon.setThemeName(theme_name)
+    QIcon.setFallbackThemeName(theme_name)
+    QIcon.setFallbackSearchPaths([str(bundled_icons / theme_name / "flat")])
+
+    def _on_color_scheme_changed(scheme: Qt.ColorScheme) -> None:
+        new_theme = _select_bundled_theme_name(bundled_icons, scheme)
+        if QIcon.themeName() in ("", "breeze-fallback", "breeze-fallback-light"):
+            QIcon.setThemeName(new_theme)
+        QIcon.setFallbackThemeName(new_theme)
+        QIcon.setFallbackSearchPaths([str(bundled_icons / new_theme / "flat")])
+
+    QGuiApplication.styleHints().colorSchemeChanged.connect(
+        _on_color_scheme_changed
+    )
+
+
 def configure_icon_themes(contents_dir: Path) -> None:
     """Sets up host and bundled fallback icon search paths."""
     bundled_icons = contents_dir / "icons"
@@ -72,57 +125,9 @@ def configure_icon_themes(contents_dir: Path) -> None:
         bundled_icons = Path(sys._MEIPASS) / "icons"
 
     if sys.platform == "win32":
-        # On Windows, exclusively use bundled icons (never Windows native icons)
-        if bundled_icons.exists():
-            QIcon.set_theme_search_paths([str(bundled_icons)])
-            theme_name = _select_bundled_theme_name(bundled_icons)
-            QIcon.set_theme_name(theme_name)
-            QIcon.set_fallback_theme_name(theme_name)
-
-            def _on_color_scheme_changed(scheme: Qt.ColorScheme) -> None:
-                new_theme = _select_bundled_theme_name(bundled_icons, scheme)
-                QIcon.set_theme_name(new_theme)
-                QIcon.set_fallback_theme_name(new_theme)
-
-            QGuiApplication.style_hints().colorSchemeChanged.connect(
-                _on_color_scheme_changed
-            )
-        else:
-            QIcon.set_theme_name("breeze")
-            QIcon.set_fallback_theme_name("breeze")
+        _configure_win_icon_themes(bundled_icons)
     else:
-        if sys.platform.startswith("linux"):
-            host_icon_dirs = [
-                str(Path.home() / ".local/share/icons"),
-                "/usr/share/icons",
-                "/usr/local/share/icons",
-            ]
-            QIcon.set_theme_search_paths(
-                host_icon_dirs + QIcon.theme_search_paths()
-            )
-
-        if bundled_icons.exists():
-            QIcon.set_theme_search_paths(
-                QIcon.theme_search_paths() + [str(bundled_icons)]
-            )
-            theme_name = _select_bundled_theme_name(bundled_icons)
-            if not QIcon.theme_name():
-                QIcon.set_theme_name(theme_name)
-            QIcon.set_fallback_theme_name(theme_name)
-            QIcon.set_fallback_search_paths([str(bundled_icons / theme_name / "flat")])
-
-            def _on_color_scheme_changed(scheme: Qt.ColorScheme) -> None:
-                new_theme = _select_bundled_theme_name(bundled_icons, scheme)
-                if QIcon.theme_name() in ("", "breeze-fallback", "breeze-fallback-light"):
-                    QIcon.set_theme_name(new_theme)
-                QIcon.set_fallback_theme_name(new_theme)
-                QIcon.set_fallback_search_paths([str(bundled_icons / new_theme / "flat")])
-
-            QGuiApplication.style_hints().colorSchemeChanged.connect(
-                _on_color_scheme_changed
-            )
-        else:
-            QIcon.set_fallback_theme_name("breeze")
+        _configure_unix_icon_themes(bundled_icons)
 
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -137,26 +142,26 @@ def add_dev_qml_paths(engine: QQmlApplicationEngine) -> None:
         ]
         for sys_qml in linux_paths:
             if Path(sys_qml).exists():
-                engine.add_import_path(sys_qml)
+                engine.addImportPath(sys_qml)
     elif sys.platform == "win32":
         env_root = Path(os.environ.get("CRAFT_ROOT") or sys.prefix)
         if (env_root / "bin").exists() and hasattr(os, "add_dll_directory"):
             os.add_dll_directory(str(env_root / "bin"))
         for qml_sub in ("qml", r"bin\data\qml", r"share\qt6\qml"):
             if (env_root / qml_sub).exists():
-                engine.add_import_path(str(env_root / qml_sub))
+                engine.addImportPath(str(env_root / qml_sub))
 
 
 def configure_qml_paths(
     engine: QQmlApplicationEngine, contents_dir: Path
 ) -> None:
     """Configures QML module import paths for frozen and dev environments."""
-    engine.add_import_path(str(contents_dir))
-    engine.add_import_path(str(contents_dir / "qml"))
+    engine.addImportPath(str(contents_dir))
+    engine.addImportPath(str(contents_dir / "qml"))
 
     if IS_FROZEN:
         bundle_root = Path(sys._MEIPASS)
-        engine.add_import_path(str(bundle_root))
+        engine.addImportPath(str(bundle_root))
         if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
             os.add_dll_directory(str(bundle_root))
     elif not IS_PACKAGED:
@@ -175,39 +180,39 @@ def handle_startup_error(
     engine: QQmlApplicationEngine, qml_errors: list[str]
 ) -> None:
     """Logs diagnostic details, shows a critical alert, and exits."""
-    detailed_err = "\n".join(qml_errors) if qml_errors else "Unknown QML loading error."
+    detailed_err = (
+        "\n".join(qml_errors) if qml_errors else "Unknown QML loading error."
+    )
     full_msg = (
-        f"""[ERROR] Failed to load QML root objects.
-        \n\nQML Diagnostics:\n{detailed_err}"""
+        f"[ERROR] Failed to load QML root objects.\n\nQML Diagnostics:\n{detailed_err}"
     )
     print(full_msg, file=sys.stderr)
 
     try:
         if IS_PACKAGED:
-            state_dir = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "fcs-client"
+            default_state = Path.home() / ".local" / "state"
+            state_root = Path(os.environ.get("XDG_STATE_HOME", default_state))
+            state_dir = state_root / "fcs-client"
             state_dir.mkdir(parents=True, exist_ok=True)
             log_path = state_dir / "FlowControl_startup.log"
         else:
             log_path = Path("FlowControl_startup.log")
-        import_paths = "\n".join(engine.import_path_list())
+        import_paths = "\n".join(engine.importPathList())
         log_path.write_text(
             f"{full_msg}\n\nImport Paths:\n{import_paths}",
             encoding="utf-8",
         )
     except Exception:
         try:
-            import tempfile
-            (Path(tempfile.gettempdir()) / "FlowControl_startup.log").write_text(
-                f"{full_msg}",
-                encoding="utf-8",
-            )
+            fallback_log = Path(tempfile.gettempdir()) / "FlowControl_startup.log"
+            fallback_log.write_text(full_msg, encoding="utf-8")
         except Exception:
             pass
 
     msg_box = QMessageBox()
-    msg_box.icon = QMessageBox.Icon.Critical
-    msg_box.window_title = "Flow Control - Startup Error"
-    msg_box.text = (
+    msg_box.setIcon(QMessageBox.Icon.Critical)
+    msg_box.setWindowTitle("Flow Control - Startup Error")
+    msg_box.setText(
         "Failed to initialize the user interface.\n\n"
         f"{detailed_err}\n\n"
         "Please verify that Kirigami and the required graphics drivers "
@@ -221,36 +226,36 @@ def main() -> None:
     """Bootstrapper"""
     contents_dir = get_resource_dir()
 
-    # Expose contents/icons to KIconLoader (QStandardPaths::GenericDataLocation) before QApplication init
+    # Expose contents/icons to KIconLoader before QApplication init
     if sys.platform.startswith("linux"):
         xdg_dirs = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share")
         if str(contents_dir) not in xdg_dirs.split(":"):
             os.environ["XDG_DATA_DIRS"] = f"{xdg_dirs}:{contents_dir}"
 
-    # platform styling
     if not os.environ.get("QT_QUICK_CONTROLS_STYLE"):
-        os.environ["QT_QUICK_CONTROLS_STYLE"] = "org.kde.desktop"
-        if sys.platform == "win32":
-            os.environ["QT_QUICK_CONTROLS_STYLE"] = "FluentWinUI3"
+        style = "FluentWinUI3" if sys.platform == "win32" else "org.kde.desktop"
+        os.environ["QT_QUICK_CONTROLS_STYLE"] = style
 
-    # Enable QML debugger/profiler support if requested
-    if os.environ.get("QML_DEBUG") or any("-qmljsdebugger" in arg for arg in sys.argv):
+    if os.environ.get("QML_DEBUG") or any(
+        "-qmljsdebugger" in arg for arg in sys.argv
+    ):
         from PySide6.QtQml import QQmlDebuggingEnabler
-        QQmlDebuggingEnabler.enable_debugging(True)
+
+        QQmlDebuggingEnabler.enableDebugging(True)
 
     app = QApplication(sys.argv)
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-    QApplication.organization_domain = "com.uvr"
-    QApplication.organization_name = "Uvic Rocketry"
-    QApplication.application_name = "fcs-client"
+    QApplication.setOrganizationDomain("com.uvr")
+    QApplication.setOrganizationName("Uvic Rocketry")
+    QApplication.setApplicationName("fcs-client")
 
     icon_path = resolve_app_icon(contents_dir)
-    app.window_icon = QIcon(str(icon_path))
+    app.setWindowIcon(QIcon(str(icon_path)))
 
     splash = SplashScreen(contents_dir / "qml", icon_path)
     splash.show()
-    QApplication.process_events()
+    QApplication.processEvents()
     splash.set_status("Starting Flow Control...")
 
     configure_icon_themes(contents_dir)
@@ -259,14 +264,15 @@ def main() -> None:
     engine = QQmlApplicationEngine()
 
     from backend import Backend
+
     backend = Backend()
-    engine.root_context().set_context_property("backend", backend)
+    engine.rootContext().setContextProperty("backend", backend)
 
     qml_errors: list[str] = []
 
-    def on_qml_warning(warnings):
+    def on_qml_warning(warnings) -> None:
         for w in warnings:
-            msg = w.to_string() if hasattr(w, "to_string") else str(w)
+            msg = w.toString() if hasattr(w, "toString") else str(w)
             qml_errors.append(msg)
             print(f"[QML] {msg}", file=sys.stderr)
 
@@ -276,11 +282,11 @@ def main() -> None:
     splash.set_status("Loading user interface...")
     engine.load(resolve_qml_entry(contents_dir))
 
-    if not engine.root_objects():
+    if not engine.rootObjects():
         splash.close()
         handle_startup_error(engine, qml_errors)
 
-    main_window = engine.root_objects()[0]
+    main_window = engine.rootObjects()[0]
     splash.finish(main_window)
 
     backend.connect()

@@ -159,13 +159,19 @@ if sys_root.exists():
 # 5. ANALYSIS & PACKAGING
 # ============================================================================
 hidden_imports = [
-    "__feature__",
     "shiboken6",
+    "actuator_controller",
     "backend",
+    "camera_controller",
     "config_manager",
+    "config_store",
+    "log_manager",
+    "numpy",
+    "platformdirs",
+    "splash",
     "telemetry_files",
     "telemetry_series",
-    "splash",
+    "telemetry_store",
     "PySide6",
     "PySide6.QtCore",
     "PySide6.QtGui",
@@ -193,7 +199,6 @@ excludes = [
     "tkinter",
     "matplotlib",
     "scipy",
-    "numpy",
     "test",
     "unittest",
 ]

@@ -2,23 +2,24 @@
     "server": {
         "default_url": "ws://127.0.0.1:8080/ws",
         "auto_reconnect": false,
-        "reconnect_interval_ms": 2000
+        "reconnect_interval_ms": 1500
     },
     "camera": {
         "mode": "auto",
         "profile": "udp_high",
-        "manual_target": "192.168.0.108",
-        "username": "admin",
+        "manual_target": "rtsp://127.0.0.1:8554/cam/realmonitor",
+        "username": "",
         "password": ""
     },
     "external_data": [],
     "ui": {
+        "min_log_level": "INFO",
         "view_refresh_hz": 60,
-        "split_active": false,
-        "left_page": "video",
-        "right_page": "",
-        "last_right_page": "",
-        "focused_pane": "left",
-        "split_ratio": 0.5
+        "split_active": true,
+        "left_page": "dashboard",
+        "right_page": "actuators",
+        "last_right_page": "actuators",
+        "focused_pane": "right",
+        "split_ratio": 0.5998
     }
 }

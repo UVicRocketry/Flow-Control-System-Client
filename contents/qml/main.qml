@@ -1,4 +1,3 @@
-import QtCore as Core
 import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
@@ -26,12 +25,6 @@ Kirigami.ApplicationWindow {
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.ToolBar
     pageStack.globalToolBar.showNavigationButtons: Kirigami.ApplicationHeaderStyle.NoNavigationButtons
     onClosing: pageHelper.closeAllPopouts()
-
-    Core.Settings {
-        id: appSettings
-
-        property string minLogLevel: "INFO"
-    }
 
     WebSocket {
         id: sharedWebSocket
@@ -168,7 +161,7 @@ Kirigami.ApplicationWindow {
                 anchors.margins: Kirigami.Units.gridUnit
                 width: Math.min(parent.width - (Kirigami.Units.gridUnit * 2), Kirigami.Units.gridUnit * 22)
                 z: 999
-                minSeverity: appSettings.minLogLevel
+                minSeverity: backend ? backend.min_log_level : "INFO"
             }
 
         }
@@ -200,9 +193,11 @@ Kirigami.ApplicationWindow {
         Settings {
             id: settingsDialog
 
-            minLogLevel: appSettings.minLogLevel
+            minLogLevel: backend ? backend.min_log_level : "INFO"
             onMinLogLevelUpdated: function(level) {
-                appSettings.minLogLevel = level;
+                if (backend)
+                    backend.set_min_log_level(level);
+
             }
             onAutoConnectToggled: function(enabled) {
                 if (enabled) {

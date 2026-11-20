@@ -7,12 +7,10 @@ parsing .csv / .jsonl telemetry files, and revealing files in the OS browser.
 
 import csv
 import json
-import shutil
-import subprocess
-import sys
+from itertools import chain
 from pathlib import Path
 
-from config_manager import CONFIG_DIR, CURRENT_DIR, REPO_ROOT
+from config_manager import CONFIG_DIR, CURRENT_DIR
 
 
 def _add_float_items(values: dict, mapping: dict, skip_keys: set | None = None) -> None:
@@ -86,13 +84,6 @@ def resolve_data_file(target: str, known_channels: dict | None = None) -> Path:
     candidates = [
         CONFIG_DIR / "data" / p.name,
         CURRENT_DIR.parent / "data" / p.name,
-        (
-            REPO_ROOT.parent
-            / "PDP-Ground-Support-Rewrite"
-            / "contents"
-            / "logs"
-            / p.name
-        ),
     ]
     for cand in candidates:
         if cand.exists() and cand.is_file():
@@ -214,6 +205,26 @@ def _extract_csv_units(
     return csv_units
 
 
+def _resolve_csv_columns(
+    clean_header: list[str],
+) -> tuple[int | None, list[tuple[int, str]], list[str]]:
+    time_col_idx = next(
+        (
+            idx
+            for idx, col_name in enumerate(clean_header)
+            if col_name.lower() in ("seconds", "time", "t", "uptime")
+        ),
+        None,
+    )
+    ignored_cols = {"timestamp", "seconds", "time", "t", "uptime"}
+    value_cols = [
+        (idx, col_name)
+        for idx, col_name in enumerate(clean_header)
+        if idx != time_col_idx and col_name and col_name.lower() not in ignored_cols
+    ]
+    return time_col_idx, value_cols, [col_name for _, col_name in value_cols]
+
+
 def _parse_csv_file(resolved_path: Path) -> tuple[list, list, list, dict[str, str]]:
     records, raw_seconds, discovered_cols = [], [], []
     csv_units: dict[str, str] = {}
@@ -227,42 +238,16 @@ def _parse_csv_file(resolved_path: Path) -> tuple[list, list, list, dict[str, st
         pending_data_rows = []
         # check if first_row is units (psi,psi,...,s) and second_row is names
         has_units_row = second_row is not None and _is_header_row(second_row)
-        if has_units_row:
-            clean_header = [h.strip() for h in second_row]
-        else:
-            clean_header = [h.strip() for h in first_row]
-            if second_row is not None:
-                pending_data_rows.append(second_row)
+        raw_header = second_row if has_units_row else first_row
+        clean_header = [h.strip() for h in raw_header]
+        if not has_units_row and second_row is not None:
+            pending_data_rows.append(second_row)
 
-        # locate 'seconds' column (or time/t/uptime); ignore 'timestamp'
-        time_col_idx = None
-        for idx, col_name in enumerate(clean_header):
-            if col_name.lower() in ("seconds", "time", "t", "uptime"):
-                time_col_idx = idx
-                break
-
-        ignored_cols = {"timestamp", "seconds", "time", "t", "uptime"}
-        value_cols = [
-            (idx, col_name)
-            for idx, col_name in enumerate(clean_header)
-            if idx != time_col_idx and col_name and col_name.lower() not in ignored_cols
-        ]
-        discovered_cols = [col_name for _, col_name in value_cols]
+        time_col_idx, value_cols, discovered_cols = _resolve_csv_columns(clean_header)
         if has_units_row:
             csv_units = _extract_csv_units(first_row, clean_header, value_cols)
 
-        row_counter = 0
-        for p_row in pending_data_rows:
-            _consume_csv_row(
-                p_row,
-                row_counter,
-                time_col_idx,
-                value_cols,
-                raw_seconds,
-                records,
-            )
-            row_counter += 1
-        for row in reader:
+        for row_counter, row in enumerate(chain(pending_data_rows, reader)):
             _consume_csv_row(
                 row,
                 row_counter,
@@ -271,7 +256,6 @@ def _parse_csv_file(resolved_path: Path) -> tuple[list, list, list, dict[str, st
                 raw_seconds,
                 records,
             )
-            row_counter += 1
     return records, raw_seconds, discovered_cols, csv_units
 
 
@@ -432,61 +416,24 @@ def append_recording_rows(
             writer.writerow(row)
 
 
-def _reveal_linux(
-    target_file: Path, target_dir: Path, is_dir: bool, log_info_fn
-) -> None:
-    if not is_dir:
-        cmd = [
-            "dbus-send",
-            "--session",
-            "--dest=org.freedesktop.FileManager1",
-            "--type=method_call",
-            "/org/freedesktop/FileManager1",
-            "org.freedesktop.FileManager1.ShowItems",
-            f"array:string:file://{target_file}",
-            "string:",
-        ]
-        res = subprocess.run(cmd, capture_output=True, timeout=1)
-        if res.returncode == 0:
-            if log_info_fn:
-                log_info_fn(f"Showing file: {target_file.name}")
-            return
-
-    # fallback to xdg-open on directory if dbus FileManager1 is unavailable
-    if shutil.which("xdg-open"):
-        subprocess.Popen(["xdg-open", str(target_dir)])
-        if log_info_fn:
-            log_info_fn(f"Showing folder: {target_dir}")
-
-
-def _reveal_desktop(target_file: Path, is_dir: bool, log_info_fn) -> None:
-    if sys.platform == "win32":
-        flag = "" if is_dir else "/select,"
-        subprocess.Popen(f'explorer {flag}"{target_file}"')
-        label = "Explorer"
-    else:
-        cmd = ["open", str(target_file)] if is_dir else ["open", "-R", str(target_file)]
-        subprocess.Popen(cmd)
-        label = "Finder"
-    if log_info_fn:
-        log_info_fn(f"Showing in {label}: {target_file.name}")
-
-
 def reveal_in_file_browser(url: str, log_info_fn=None, log_warn_fn=None) -> None:
-    """reveals the target file or directory in the native OS file manager."""
+    """opens the target file or containing folder in the OS file manager."""
     candidate = Path(url)
     if not candidate.exists():
         local_candidate = CONFIG_DIR / "data" / candidate.name
         if local_candidate.exists():
             candidate = local_candidate
     target_file = candidate.resolve()
-    is_dir = target_file.is_dir()
-    target_dir = target_file if is_dir else target_file.parent
+    target_dir = target_file if target_file.is_dir() else target_file.parent
     try:
-        if sys.platform.startswith("linux"):
-            _reveal_linux(target_file, target_dir, is_dir, log_info_fn)
-        elif sys.platform in ("win32", "darwin"):
-            _reveal_desktop(target_file, is_dir, log_info_fn)
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(str(target_dir))):
+            if log_info_fn:
+                log_info_fn(f"Showing folder: {target_dir}")
+        elif log_warn_fn:
+            log_warn_fn(f"Failed to open folder: {target_dir}")
     except Exception as e:
         if log_warn_fn:
             log_warn_fn(f"Failed to open data file location: {e}")

@@ -237,6 +237,8 @@ jobs:
           pacman -Sy --noconfirm --needed \
             mingw-w64-ucrt-x86_64-python \
             mingw-w64-ucrt-x86_64-python-pip \
+            mingw-w64-ucrt-x86_64-python-numpy \
+            mingw-w64-ucrt-x86_64-python-platformdirs \
             mingw-w64-ucrt-x86_64-pyside6 \
             mingw-w64-ucrt-x86_64-pyinstaller \
             mingw-w64-ucrt-x86_64-python-pillow \
@@ -250,7 +252,7 @@ jobs:
             mingw-w64-ucrt-x86_64-qt6-websockets \
             mingw-w64-ucrt-x86_64-qt6-multimedia
 
-          grep -ivE "pyside6|shiboken6" requirements.txt > requirements-msys2.txt || true
+          grep -ivE "pyside6|shiboken6|numpy|platformdirs" requirements.txt > requirements-msys2.txt || true
           if [ -s requirements-msys2.txt ]; then
             pip install --no-build-isolation -r requirements-msys2.txt
           fi

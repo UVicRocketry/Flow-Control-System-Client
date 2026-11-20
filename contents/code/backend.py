@@ -1,104 +1,31 @@
 # This Python file uses the following encoding: utf-8
-"""
-Flow Control Client - Backend Controller
-provides QObject bridge between PySide6/QML and config/telemetry helpers.
-"""
+"""Thin QML facade composing the client's focused QObject controllers (`backend.py`)."""
 
 import json
-import os
 import sys
-import threading
-import time
 from pathlib import Path
-from urllib.parse import quote
-from urllib.request import (
-    HTTPDigestAuthHandler,
-    HTTPPasswordMgrWithDefaultRealm,
-    build_opener,
-)
 
-from PySide6 import QtCore, QtMultimedia
-from PySide6.QtNetwork import QNetworkInterface
+from PySide6 import QtCore
 from PySide6.QtWidgets import QFileDialog
-from __feature__ import snake_case, true_property
 
-from config_manager import (
-    CONFIG_DIR,
-    CONFIG_FILE,
-    ensure_config_file_exists,
-    is_dev_environment,
-    read_app_config,
-    read_graphs_config,
-    write_app_config,
-    write_graphs_config,
-)
-from telemetry_files import (
-    append_recording_rows,
-    delete_data_file,
-    init_recording_csv,
-    list_local_data_files,
-    parse_telemetry_file_with_units,
-    rename_data_file,
-    resolve_data_file,
-    reveal_in_file_browser,
-)
-from telemetry_series import (
-    coerce_allowed_unit,
-    format_channel_meta,
-    ingest_ws_telemetry_frames,
-    list_available_channels,
-    query_batch_channels,
-    query_channel_series,
-    register_channel_if_missing,
-)
-
-assert snake_case, true_property
+from actuator_controller import ActuatorController
+from camera_controller import CameraController
+from config_manager import ensure_config_file_exists, is_dev_environment
+from config_store import ConfigStore
+from log_manager import LogManager
+from telemetry_files import reveal_in_file_browser
+from telemetry_store import TelemetryStore
 
 ensure_config_file_exists()
-
-LARGE_FILE_BYTES = 10 * 1024 * 1024
-
-
-class _FileParseSignals(QtCore.QObject):
-    finished = QtCore.Signal(str, str, str, object, object, object, object)
-    failed = QtCore.Signal(str, str)
-
-
-class _FileParseWorker(QtCore.QRunnable):
-    """Background QRunnable for parsing large (>10 MB) telemetry files."""
-
-    def __init__(self, mode: str, target: str, resolved_path: Path):
-        super().__init__()
-        self.mode = mode
-        self.target = target
-        self.resolved_path = resolved_path
-        self.signals = _FileParseSignals()
-
-    def run(self):
-        try:
-            records, seconds_list, cols, csv_units = parse_telemetry_file_with_units(
-                self.resolved_path
-            )
-            self.signals.finished.emit(
-                self.mode,
-                self.target,
-                str(self.resolved_path),
-                records,
-                seconds_list,
-                cols,
-                csv_units,
-            )
-        except Exception as err:
-            self.signals.failed.emit(self.target, str(err))
 
 
 class Backend(QtCore.QObject):
     """
     QObject bridge for PySide6/QML.
-    exposes configuration properties, file loading, and telemetry queries.
+    Delegates configuration, camera, actuation, logs, and telemetry to focused
+    controllers while preserving a stable signal/property/slot surface for QML.
     """
 
-    # signals
     config_changed = QtCore.Signal()
     server_url_changed = QtCore.Signal(str)
     auto_reconnect_changed = QtCore.Signal(bool)
@@ -122,58 +49,25 @@ class Backend(QtCore.QObject):
     recording_changed = QtCore.Signal(bool)
     server_recording_active_on_connect = QtCore.Signal(str)
     view_refresh_hz_changed = QtCore.Signal(int)
+    min_log_level_changed = QtCore.Signal(str)
     camera_config_changed = QtCore.Signal()
     camera_active_changed = QtCore.Signal(bool)
     camera_toggle_requested = QtCore.Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._config_data = {}
-        self._camera_active = False
-        self._armed = False
         self._ws_connected = False
-        self._recording = False
         self._prompted_server_recording = False
-        self._record_file_path = None
-        self._record_columns = []
-        self._record_sample_count = 0
-        self._active_workers = []
-        self._valve_definitions = []
-        self._valves = {}
-        self._local_data = []
-        self._remote_data = []
-        self._pending_deletions = set()
-        self._known_channels = {}
-        self._default_graph_cards = []
-        self._live_records = []
-        self._live_seconds = []
-        self._live_t0 = None
-        self._telemetry_ui_dirty = False
-        self._last_telemetry_emit_ts = 0.0
-        self._telemetry_ui_timer = QtCore.QTimer(self)
-        self._telemetry_ui_timer.single_shot = True
-        self._telemetry_ui_timer.timeout.connect(self._flush_telemetry_ui_update)
-        self.load_graphs_config()
-        self._latest_telemetry = {
-            "seconds": 0.0,
-            "uptime": 0.0,
-            "packet_id": 0,
-            "values": {k: 0.0 for k in self._known_channels},
-        }
-        self._loaded_records = []
-        self._loaded_seconds = []
-        self._loaded_channel_units = {}
-        self._live_channel_units = {}
-        self._loaded_meta = {
-            "name": "",
-            "path": "",
-            "source": "",
-            "minTime": 0.0,
-            "maxTime": 0.0,
-            "duration": 0.0,
-            "count": 0,
-            "columns": list(self._known_channels.keys()),
-        }
+
+        self.log_manager = LogManager(self)
+        self.config_store = ConfigStore(self.log_manager, self)
+        self.camera_controller = CameraController(self.config_store, self)
+        self.actuator_controller = ActuatorController(self)
+        self.telemetry_store = TelemetryStore(
+            self.config_store, self.log_manager, self
+        )
+
+        self._wire_controller_signals()
         self.load_config()
         self.refresh_local_data()
 
@@ -184,192 +78,176 @@ class Backend(QtCore.QObject):
         )
         print(
             "[CONFIG] Environment: ",
-            f"{env_type} | Config directory: {CONFIG_DIR}",
+            f"{env_type} | Config directory: {self.config_dir}",
         )
 
-    # logging helpers (push to UI toaster/notification tray and stdout/stderr)
+    def _wire_controller_signals(self) -> None:
+        self.log_manager.log_sent.connect(self.log_sent)
+        self.log_manager.local_data_changed.connect(self.local_data_changed)
+        self.log_manager.remote_data_changed.connect(self.remote_data_changed)
 
-    def log_info(self, msg: str):
-        self._send_log("INFO", msg)
+        self.config_store.config_changed.connect(self.config_changed)
+        self.config_store.server_url_changed.connect(self.server_url_changed)
+        self.config_store.auto_reconnect_changed.connect(self.auto_reconnect_changed)
+        self.config_store.reconnect_interval_ms_changed.connect(
+            self.reconnect_interval_ms_changed
+        )
+        self.config_store.view_refresh_hz_changed.connect(
+            self.telemetry_store.reschedule_ui_timer
+        )
+        self.config_store.view_refresh_hz_changed.connect(self.view_refresh_hz_changed)
+        self.config_store.min_log_level_changed.connect(self.min_log_level_changed)
+        self.config_store.external_data_changed.connect(self.external_data_changed)
 
-    def log_warn(self, msg: str):
-        self._send_log("WARN", msg)
+        self.camera_controller.camera_config_changed.connect(
+            self.camera_config_changed
+        )
+        self.camera_controller.camera_active_changed.connect(
+            self.camera_active_changed
+        )
+        self.camera_controller.camera_toggle_requested.connect(
+            self.camera_toggle_requested
+        )
 
-    def log_error(self, msg: str):
-        self._send_log("ERR", msg, sys.stderr)
+        self.actuator_controller.config_changed.connect(self.config_changed)
+        self.actuator_controller.armed_changed.connect(self.armed_changed)
+        self.actuator_controller.valves_changed.connect(self.valves_changed)
+        self.actuator_controller.valve_state_updated.connect(self.valve_state_updated)
 
-    def _send_log(self, level: str, msg: str, file=sys.stdout):
-        t_str = time.strftime("%H:%M:%S")
-        entry = f"[{t_str}] [{level}] {msg}"
-        print(f"[FLOW-CTRL] {entry}", flush=True, file=file)
-        self.log_sent.emit(level, msg)
+        self.telemetry_store.telemetry_changed.connect(self.telemetry_changed)
+        self.telemetry_store.channels_changed.connect(self.channels_changed)
+        self.telemetry_store.recording_changed.connect(self.recording_changed)
+        self.telemetry_store.data_loaded.connect(self.data_loaded)
+
+    # ------------------------------------------------------------------
+    # Logging Slots
+    # ------------------------------------------------------------------
+    @QtCore.Slot(str)
+    def log_info(self, msg: str) -> None:
+        self.log_manager.log_info(msg)
+
+    @QtCore.Slot(str)
+    def log_warn(self, msg: str) -> None:
+        self.log_manager.log_warn(msg)
+
+    @QtCore.Slot(str)
+    def log_error(self, msg: str) -> None:
+        self.log_manager.log_error(msg)
 
     @QtCore.Slot(str, str)
-    def log(self, level: str, msg: str):
-        """logger slot for QML."""
-        lvl = level.upper()
-        out_stream = sys.stderr if lvl == "ERR" else sys.stdout
-        self._send_log(lvl, msg, file=out_stream)
+    def log(self, level: str, msg: str) -> None:
+        self.log_manager.log(level, msg)
 
     @QtCore.Slot(str)
-    def info(self, msg: str):
-        self.log_info(msg)
+    def info(self, msg: str) -> None:
+        self.log_manager.log_info(msg)
 
     @QtCore.Slot(str)
-    def warn(self, msg: str):
-        self.log_warn(msg)
+    def warn(self, msg: str) -> None:
+        self.log_manager.log_warn(msg)
 
     @QtCore.Slot(str)
-    def err(self, msg: str):
-        self.log_error(msg)
+    def err(self, msg: str) -> None:
+        self.log_manager.log_error(msg)
 
-    # configuration properties & slots
-
+    # ------------------------------------------------------------------
+    # Config & UI Settings
+    # ------------------------------------------------------------------
     @QtCore.Property(str, notify=config_changed)
     def config_dir(self) -> str:
-        return str(CONFIG_DIR)
+        return self.config_store.config_dir
 
     @QtCore.Property(str, notify=config_changed)
     def config_file(self) -> str:
-        return str(CONFIG_FILE)
+        return self.config_store.config_file
 
     @QtCore.Property(bool, constant=True)
     def is_dev_mode(self) -> bool:
-        return is_dev_environment()
+        return self.config_store.is_dev_mode
 
     @QtCore.Property(str, notify=server_url_changed)
     def server_url(self) -> str:
-        server_sec = self._config_data.get("server", {})
-        return server_sec.get("default_url", "ws://127.0.0.1:8080/ws")
+        return self.config_store.server_url
 
     @server_url.setter
-    def server_url(self, url: str):
-        url = url.strip()
-        if not url:
-            return
-        if "server" not in self._config_data:
-            self._config_data["server"] = {}
-        if self._config_data["server"].get("default_url") != url:
-            self._config_data["server"]["default_url"] = url
-            self.save_config(self._config_data)
-            self.server_url_changed.emit(url)
+    def server_url(self, url: str) -> None:
+        self.config_store.server_url = url
 
     @QtCore.Property(bool, notify=auto_reconnect_changed)
     def auto_reconnect(self) -> bool:
-        server_sec = self._config_data.get("server", {})
-        return bool(server_sec.get("auto_reconnect", True))
+        return self.config_store.auto_reconnect
 
     @auto_reconnect.setter
-    def auto_reconnect(self, enabled: bool):
-        if "server" not in self._config_data:
-            self._config_data["server"] = {}
-        if self._config_data["server"].get("auto_reconnect") != enabled:
-            self._config_data["server"]["auto_reconnect"] = enabled
-            self.save_config(self._config_data)
-            self.auto_reconnect_changed.emit(enabled)
+    def auto_reconnect(self, enabled: bool) -> None:
+        self.config_store.auto_reconnect = enabled
 
     @QtCore.Property(int, notify=reconnect_interval_ms_changed)
     def reconnect_interval_ms(self) -> int:
-        server_sec = self._config_data.get("server", {})
-        return int(server_sec.get("reconnect_interval_ms", 2000))
+        return self.config_store.reconnect_interval_ms
 
     @reconnect_interval_ms.setter
-    def reconnect_interval_ms(self, interval: int):
-        if "server" not in self._config_data:
-            self._config_data["server"] = {}
-        curr = self._config_data["server"].get("reconnect_interval_ms")
-        if curr != interval:
-            self._config_data["server"]["reconnect_interval_ms"] = interval
-            self.save_config(self._config_data)
-            self.reconnect_interval_ms_changed.emit(interval)
+    def reconnect_interval_ms(self, interval: int) -> None:
+        self.config_store.reconnect_interval_ms = interval
 
     @QtCore.Property(int, notify=view_refresh_hz_changed)
     def view_refresh_hz(self) -> int:
-        ui_sec = self._config_data.get("ui", {})
-        return max(1, min(120, int(ui_sec.get("view_refresh_hz", 20))))
+        return self.config_store.view_refresh_hz
 
     @view_refresh_hz.setter
-    def view_refresh_hz(self, hz: int):
-        hz = max(1, min(120, int(hz)))
-        if "ui" not in self._config_data:
-            self._config_data["ui"] = {}
-        curr = self._config_data["ui"].get("view_refresh_hz")
-        if curr != hz:
-            self._config_data["ui"]["view_refresh_hz"] = hz
-            self.save_config(self._config_data)
-            if self._telemetry_ui_timer.active:
-                self._telemetry_ui_timer.stop()
-                self._schedule_telemetry_ui_update()
-            self.view_refresh_hz_changed.emit(hz)
+    def view_refresh_hz(self, hz: int) -> None:
+        self.config_store.view_refresh_hz = hz
+
+    @QtCore.Property(str, notify=min_log_level_changed)
+    def min_log_level(self) -> str:
+        return self.config_store.min_log_level
+
+    @min_log_level.setter
+    def min_log_level(self, level: str) -> None:
+        self.config_store.min_log_level = level
 
     @QtCore.Slot(result="QVariantMap")
     def load_config(self) -> dict:
-        """loads configuration from CONFIG_FILE via config_manager."""
-        self._config_data = read_app_config(self.log_error)
-        self._seed_valves_from_config()
-        self._apply_camera_transport()
-        self.config_changed.emit()
-        self.camera_config_changed.emit()
-        self.server_url_changed.emit(self.server_url)
-        self.auto_reconnect_changed.emit(self.auto_reconnect)
-        self.reconnect_interval_ms_changed.emit(self.reconnect_interval_ms)
-        self.view_refresh_hz_changed.emit(self.view_refresh_hz)
-        self.external_data_changed.emit()
-        return self._config_data
+        data = self.config_store.load_config()
+        self.actuator_controller.seed_valves_from_config(data)
+        self.camera_controller.apply_camera_transport()
+        return data
 
     @QtCore.Slot("QVariantMap", result=bool)
     def save_config(self, data: dict) -> bool:
-        """saves dictionary data to CONFIG_FILE via config_manager."""
-        if write_app_config(data, self.log_error):
-            self._config_data = data
-            self.config_changed.emit()
-            return True
-        return False
+        return self.config_store.save_config(data)
 
     @QtCore.Slot(str, result="QVariant")
     @QtCore.Slot(str, "QVariant", result="QVariant")
     def get_setting(self, key: str, default=None):
-        return self._config_data.get(key, default)
+        return self.config_store.get_setting(key, default)
 
     @QtCore.Slot(str, "QVariant")
-    def set_setting(self, key: str, value):
-        self._config_data[key] = value
-        self.save_config(self._config_data)
+    def set_setting(self, key: str, value) -> None:
+        self.config_store.set_setting(key, value)
 
     @QtCore.Slot(str)
-    def set_server_url(self, url: str):
+    def set_server_url(self, url: str) -> None:
         self.server_url = url
 
     @QtCore.Slot(bool)
-    def set_auto_reconnect(self, enabled: bool):
+    def set_auto_reconnect(self, enabled: bool) -> None:
         self.auto_reconnect = enabled
 
     @QtCore.Slot(int)
-    def set_reconnect_interval_ms(self, interval: int):
+    def set_reconnect_interval_ms(self, interval: int) -> None:
         self.reconnect_interval_ms = interval
 
     @QtCore.Slot(int)
-    def set_view_refresh_hz(self, hz: int):
+    def set_view_refresh_hz(self, hz: int) -> None:
         self.view_refresh_hz = hz
+
+    @QtCore.Slot(str)
+    def set_min_log_level(self, level: str) -> None:
+        self.min_log_level = level
 
     @QtCore.Slot(result="QVariantMap")
     def get_split_config(self) -> dict:
-        """returns saved split view state, pane positions, and sizing ratio from config.json."""
-        ui_sec = self._config_data.get("ui", {})
-        if not isinstance(ui_sec, dict):
-            ui_sec = {}
-        try:
-            ratio = float(ui_sec.get("split_ratio", 0.5))
-        except (TypeError, ValueError):
-            ratio = 0.5
-        return {
-            "split_active": bool(ui_sec.get("split_active", False)),
-            "left_page": str(ui_sec.get("left_page", "dashboard") or "dashboard"),
-            "right_page": str(ui_sec.get("right_page", "") or ""),
-            "last_right_page": str(ui_sec.get("last_right_page", "") or ""),
-            "focused_pane": str(ui_sec.get("focused_pane", "left") or "left"),
-            "split_ratio": max(0.05, min(0.95, ratio)),
-        }
+        return self.config_store.get_split_config()
 
     @QtCore.Slot(bool, str, str, str, str, float)
     def save_split_config(
@@ -381,820 +259,348 @@ class Backend(QtCore.QObject):
         focused_pane: str,
         split_ratio: float,
     ) -> None:
-        """persists split view state, pane positions, and sizing ratio to config.json."""
-        if "ui" not in self._config_data or not isinstance(
-            self._config_data["ui"], dict
-        ):
-            self._config_data["ui"] = {}
-        ui_sec = self._config_data["ui"]
-        ratio = round(max(0.05, min(0.95, float(split_ratio))), 4)
-        updated = {
-            "split_active": bool(split_active),
-            "left_page": str(left_page or "dashboard"),
-            "right_page": str(right_page or ""),
-            "last_right_page": str(last_right_page or ""),
-            "focused_pane": "right" if focused_pane == "right" else "left",
-            "split_ratio": ratio,
-        }
-        if any(ui_sec.get(k) != v for k, v in updated.items()):
-            ui_sec.update(updated)
-            self.save_config(self._config_data)
+        self.config_store.save_split_config(
+            split_active,
+            left_page,
+            right_page,
+            last_right_page,
+            focused_pane,
+            split_ratio,
+        )
 
     @QtCore.Slot()
-    def connect_to_server(self):
-        """signals QML/listeners to initiate WebSocket connection."""
+    def connect_to_server(self) -> None:
         self.connect_requested.emit()
 
     @QtCore.Slot()
-    def connect(self):
-        """connection entrypoint called on startup."""
+    def connect(self) -> None:
         self.connect_to_server()
 
     @QtCore.Slot(str)
-    def show_in_file_browser(self, url: str):
+    def show_in_file_browser(self, url: str) -> None:
         reveal_in_file_browser(url, self.log_info, self.log_warn)
 
-    # IP camera configuration & auto link detection
-
-    def _cam_cfg(self) -> dict:
-        cam = self._config_data.get("camera")
-        return cam if isinstance(cam, dict) else {}
-
-    def _detect_camera_link(self) -> tuple[str, bool]:
-        """Auto-detects active Ethernet vs. Wireless interface and target camera IP."""
-        Flag = QNetworkInterface.InterfaceFlag
-        IType = QNetworkInterface.InterfaceType
-        eth_ip = ""
-        for iface in QNetworkInterface.all_interfaces():
-            flags = iface.flags()
-            if (
-                not (flags & Flag.IsUp)
-                or not (flags & Flag.IsRunning)
-                or (flags & Flag.IsLoopBack)
-            ):
-                continue
-            ips = [
-                e.ip().to_string()
-                for e in iface.address_entries()
-                if "." in e.ip().to_string()
-            ]
-            if iface.type() == IType.Ethernet and ips:
-                eth_ip = ips[0]
-                if any(ip.startswith("192.168.1.") for ip in ips):
-                    return "192.168.1.108", True
-        return "192.168.0.108", bool(eth_ip)
-
-    def _apply_camera_transport(self):
-        os.environ["QT_FFMPEG_RTSP_TRANSPORT"] = (
-            "udp" if self.camera_profile == "udp_high" else "tcp"
-        )
-
-    def _enforce_camera_h264(self, host: str):
-        """Configures Amcrest main & sub streams to H.264 in background for minimal latency."""
-        user, pwd = self.camera_username, self.camera_password
-        if not host or not user:
-            return
-
-        def _worker():
-            try:
-                mgr = HTTPPasswordMgrWithDefaultRealm()
-                url = (
-                    f"http://{host}/cgi-bin/configManager.cgi?action=setConfig"
-                    "&Encode[0].MainFormat[0].Video.Compression=H.264"
-                    "&Encode[0].ExtraFormat[0].Video.Compression=H.264"
-                )
-                mgr.add_password(None, url, user, pwd)
-                opener = build_opener(HTTPDigestAuthHandler(mgr))
-                opener.open(url, timeout=2.0).read()
-            except Exception:
-                pass
-
-        threading.Thread(target=_worker, daemon=True).start()
-
+    # ------------------------------------------------------------------
+    # Camera Controls
+    # ------------------------------------------------------------------
     @QtCore.Property(str, notify=camera_config_changed)
     def camera_mode(self) -> str:
-        return "manual" if self._cam_cfg().get("mode") == "manual" else "auto"
+        return self.camera_controller.camera_mode
 
     @QtCore.Property(str, notify=camera_config_changed)
     def camera_profile(self) -> str:
-        return "udp_high" if self._cam_cfg().get("profile") == "udp_high" else "tcp_low"
+        return self.camera_controller.camera_profile
 
     @QtCore.Property(str, notify=camera_config_changed)
     def camera_manual_target(self) -> str:
-        return str(self._cam_cfg().get("manual_target", "192.168.0.108")).strip()
+        return self.camera_controller.camera_manual_target
 
     @QtCore.Property(str, notify=camera_config_changed)
     def camera_username(self) -> str:
-        return str(self._cam_cfg().get("username", "admin")).strip()
+        return self.camera_controller.camera_username
 
     @QtCore.Property(str, notify=camera_config_changed)
     def camera_password(self) -> str:
-        return str(self._cam_cfg().get("password", ""))
+        return self.camera_controller.camera_password
 
     @QtCore.Property(str, notify=camera_config_changed)
     def camera_rtsp_url(self) -> str:
-        self._apply_camera_transport()
-        target = (
-            self.camera_manual_target
-            if self.camera_mode == "manual"
-            else self._detect_camera_link()[0]
-        )
-        if target.startswith(("rtsp://", "http://", "https://", "file://")):
-            return target
-        host = target or "192.168.0.108"
-        self._enforce_camera_h264(host.split(":")[0])
-        port = 554
-        if ":" in host:
-            host, port_s = host.rsplit(":", 1)
-            port = int(port_s) if port_s.isdigit() else 554
-        subtype = 0 if self.camera_profile == "udp_high" else 1
-        user, pwd = self.camera_username, self.camera_password
-        auth = (
-            f"{quote(user, safe='')}:{quote(pwd, safe='')}@"
-            if (user and pwd)
-            else (f"{quote(user, safe='')}@" if user else "")
-        )
-        return f"rtsp://{auth}{host}:{port}/cam/realmonitor?channel=1&subtype={subtype}"
+        return self.camera_controller.camera_rtsp_url
 
     @QtCore.Slot(str, str, str)
-    def set_camera_settings(self, mode: str, profile: str, manual_target: str):
-        cam = dict(self._cam_cfg())
-        new_mode = "manual" if mode == "manual" else "auto"
-        new_prof = "udp_high" if profile == "udp_high" else "tcp_low"
-        if (
-            new_mode == "auto"
-            and cam.get("mode") != "auto"
-            and profile == cam.get("profile")
-        ):
-            _, is_eth = self._detect_camera_link()
-            new_prof = "udp_high" if is_eth else "tcp_low"
-        cam.update(
-            {
-                "mode": new_mode,
-                "profile": new_prof,
-                "manual_target": manual_target.strip() or "192.168.0.108",
-            }
-        )
-        self._config_data["camera"] = cam
-        self._apply_camera_transport()
-        self.save_config(self._config_data)
-        self.camera_config_changed.emit()
+    def set_camera_settings(self, mode: str, profile: str, manual_target: str) -> None:
+        self.camera_controller.set_camera_settings(mode, profile, manual_target)
 
     @QtCore.Property(bool, notify=camera_active_changed)
     def camera_active(self) -> bool:
-        return self._camera_active
+        return self.camera_controller.camera_active
 
     @QtCore.Slot(bool)
-    def set_camera_active(self, active: bool):
-        active = bool(active)
-        if self._camera_active != active:
-            self._camera_active = active
-            self.camera_active_changed.emit(active)
+    def set_camera_active(self, active: bool) -> None:
+        self.camera_controller.set_camera_active(active)
 
     @QtCore.Slot(QtCore.QObject)
-    def configure_camera_player(self, player: QtCore.QObject):
-        """Configures QML MediaPlayer with LowLatencyStreaming and 5s network timeout."""
-        try:
-            opts = player.playback_options
-            opts.playback_intent = (
-                QtMultimedia.QPlaybackOptions.PlaybackIntent.LowLatencyStreaming
-            )
-            opts.network_timeout = 5000
-            player.playback_options = opts
-        except Exception:
-            pass
+    def configure_camera_player(self, player: QtCore.QObject) -> None:
+        self.camera_controller.configure_camera_player(player)
 
     @QtCore.Slot()
-    def toggle_camera(self):
-        self.camera_toggle_requested.emit()
+    def toggle_camera(self) -> None:
+        self.camera_controller.toggle_camera()
 
     @QtCore.Slot(str, str)
-    def set_camera_credentials(self, username: str, password: str):
-        cam = dict(self._cam_cfg())
-        cam["username"] = username.strip()
-        cam["password"] = password
-        self._config_data["camera"] = cam
-        self.save_config(self._config_data)
-        self.camera_config_changed.emit()
+    def set_camera_credentials(self, username: str, password: str) -> None:
+        self.camera_controller.set_camera_credentials(username, password)
 
     @QtCore.Slot(str)
-    def set_camera_manual_target(self, target: str):
-        cam = dict(self._cam_cfg())
-        cam["manual_target"] = target.strip() or "192.168.0.108"
-        self._config_data["camera"] = cam
-        self.save_config(self._config_data)
-        self.camera_config_changed.emit()
+    def set_camera_manual_target(self, target: str) -> None:
+        self.camera_controller.set_camera_manual_target(target)
 
-    # telemetry & graphs configuration
-
+    # ------------------------------------------------------------------
+    # Telemetry Config, Recording & Queries
+    # ------------------------------------------------------------------
     @QtCore.Slot()
-    def load_graphs_config(self):
-        """loads default channels and cards from config/graphs/graphs.json."""
-        known_channels, default_cards = read_graphs_config(self.log_error)
-        if known_channels:
-            self._known_channels = known_channels
-        if default_cards:
-            self._default_graph_cards = [
-                self._normalize_graph_card(dict(c))
-                for c in default_cards
-                if isinstance(c, dict)
-            ]
-        self.channels_changed.emit()
-
-    @staticmethod
-    def _normalize_graph_card(card: dict) -> dict:
-        raw_title = card.get("title") or card.get("channelKey") or "Graph"
-        channel_key = str(card.get("channelKey") or "")
-        if channel_key == "L_RUN_TANK" and "mass" in str(raw_title).lower():
-            channel_key = "M_RUN_TANK"
-        y_unit = coerce_allowed_unit(channel_key, card.get("yAxisLabel"))
-        return {
-            "title": str(raw_title),
-            "channelKey": channel_key,
-            "xAxisLabel": str(card.get("xAxisLabel") or "Time (s)"),
-            "yAxisLabel": y_unit,
-            "accentColor": str(card.get("accentColor") or "theme:highlight"),
-            "autoScale": bool(card.get("autoScale", True)),
-            "manualMinY": float(card.get("manualMinY", 0.0)),
-            "manualMaxY": float(card.get("manualMaxY", 1000.0)),
-            "minYRange": float(card.get("minYRange", 10.0)),
-            "filterOutliers3Std": bool(card.get("filterOutliers3Std", False)),
-            "smoothingWindow": int(card.get("smoothingWindow", 1)),
-            "maxBuckets": int(card.get("maxBuckets", 300)),
-            "showGrid": bool(card.get("showGrid", True)),
-            "showFill": bool(card.get("showFill", True)),
-            "colSpan": int(card.get("colSpan", 1)),
-            "cardHeight": max(210, int(card.get("cardHeight", 230))),
-        }
+    def load_graphs_config(self) -> None:
+        self.telemetry_store.load_graphs_config()
 
     @QtCore.Slot("QVariantList", result=bool)
     def save_graphs_config(self, cards: list) -> bool:
-        """Persists updated graph card layout to config/graphs/graphs.json."""
-        if not isinstance(cards, list):
-            return False
-        normalized = [
-            self._normalize_graph_card(dict(c)) for c in cards if isinstance(c, dict)
-        ]
-        self._default_graph_cards = normalized
-        return write_graphs_config(
-            self._known_channels, self._default_graph_cards, self.log_error
-        )
+        return self.telemetry_store.save_graphs_config(cards)
 
     @QtCore.Property("QVariantMap", notify=telemetry_changed)
     def telemetry(self) -> dict:
-        return self._latest_telemetry
+        return self.telemetry_store.telemetry
 
     @QtCore.Property("QVariantMap", notify=telemetry_changed)
     def loaded_meta(self) -> dict:
-        return self._loaded_meta
+        return self.telemetry_store.loaded_meta
 
     @QtCore.Property("QVariantList", notify=channels_changed)
     def default_graph_cards(self) -> list:
-        return self._default_graph_cards
+        return self.telemetry_store.default_graph_cards
 
     @QtCore.Property("QVariantList", notify=channels_changed)
     def available_channels(self) -> list:
-        return list_available_channels(self._known_channels, self._loaded_channel_units)
+        return self.telemetry_store.available_channels
 
     @QtCore.Slot(str, result="QVariantMap")
     def get_channel_meta(self, channel: str) -> dict:
-        return format_channel_meta(
-            self._known_channels, channel, self._loaded_channel_units
-        )
-
-    # telemetry recording (local + server)
+        return self.telemetry_store.get_channel_meta(channel)
 
     @QtCore.Property(bool, notify=recording_changed)
     def recording(self) -> bool:
-        return self._recording
+        return self.telemetry_store.recording
 
     @recording.setter
-    def recording(self, active: bool):
+    def recording(self, active: bool) -> None:
         self.set_recording(active)
 
     @QtCore.Slot(bool)
-    def set_recording(self, active: bool):
-        """Starts or stops telemetry recording locally and on the server."""
-        active = bool(active)
-        if self._recording == active:
-            return
-        if active:
-            self._start_recording()
-        else:
-            self._stop_recording()
+    def set_recording(self, active: bool) -> None:
+        self.telemetry_store.set_recording(
+            active, self._ws_connected, self.ws_send_requested.emit
+        )
 
     @QtCore.Slot(result=bool)
     def toggle_recording(self) -> bool:
-        self.set_recording(not self._recording)
-        return self._recording
-
-    def _start_recording(self):
-        if not self._ws_connected:
-            self.log_warn("Cannot record telemetry while server is offline.")
-            self.recording_changed.emit(self._recording)
-            return
-
-        ts = time.strftime("%Y_%m_%d_%H%M%S")
-        dest_path = CONFIG_DIR / "data" / f"telemetry_{ts}.csv"
-        try:
-            self._record_columns = init_recording_csv(dest_path, self._known_channels)
-        except Exception as err:
-            self.log_error(f"Failed to start local telemetry recording: {err}")
-            return
-
-        self._record_file_path = dest_path
-        self._record_sample_count = 0
-        self._recording = True
-        self.recording_changed.emit(True)
-        self.refresh_local_data()
-
-        payload = {
-            "type": "record",
-            "command": "RECORD",
-            "active": True,
-            "filename": dest_path.name,
-        }
-        self.ws_send_requested.emit(json.dumps(payload))
-        self.log_info(
-            f'Recording telemetry to "{dest_path.name}" locally and on server.'
-        )
-
-    def _stop_recording(self):
-        fname = (
-            self._record_file_path.name if self._record_file_path else "telemetry.csv"
-        )
-        count = self._record_sample_count
-        self._recording = False
-        self._record_file_path = None
-        self.recording_changed.emit(False)
-
-        payload = {"type": "record", "command": "RECORD", "active": False}
-        self.ws_send_requested.emit(json.dumps(payload))
-        self.refresh_local_data()
-        if self._ws_connected:
-            self.refresh_remote_data()
-        self.log_info(f'Stopped recording "{fname}" ({count} samples saved).')
+        self.set_recording(not self.recording)
+        return self.recording
 
     @QtCore.Slot(str)
-    def pull_server_recording_state(self, filename: str = ""):
-        """Requests server's active recording CSV to populate live memory."""
+    def pull_server_recording_state(self, filename: str = "") -> None:
         if not self._ws_connected:
             self.log_warn("Cannot pull server recording while disconnected.")
             return
-        clean_name = Path(str(filename)).name if filename else ""
-        payload = {
-            "type": "remote_data_req",
-            "operation": "get",
-            "filename": clean_name,
-            "mode": "pull_recording",
-        }
-        self.ws_send_requested.emit(json.dumps(payload))
         self.log_info("Pulling current recorded state from server...")
+        self.log_manager.fetch_remote_file(
+            self.server_url,
+            filename,
+            mode="pull_recording",
+            on_saved_cb=lambda fname, dest, ow, _mode: (
+                self.telemetry_store.apply_pulled_recording_file(
+                    fname, dest, overwrote=ow
+                )
+            ),
+            ws_connected=self._ws_connected,
+            ws_send_fn=self.ws_send_requested.emit,
+        )
 
-    # actuator & safety state
-
-    @staticmethod
-    def _normalize_valve_state(state: str) -> str:
-        s = str(state).strip().upper()
-        aliases = {
-            "CLOSE": "CLOSED",
-            "TRANSIT": "ACTUATING",
-            "FILLING": "FILL",
-            "VENTING": "VENT",
-        }
-        return aliases.get(s, s)
-
-    def _seed_valves_from_config(self):
-        defs = self._config_data.get("actuators") or self._config_data.get("valves")
-        if isinstance(defs, list) and defs:
-            self._apply_actuator_definitions(defs)
-
-    def _apply_actuator_definitions(self, definitions: list):
-        valid_defs = [
-            dict(item)
-            for item in definitions
-            if isinstance(item, dict) and item.get("id")
-        ]
-        self._valve_definitions = valid_defs
-        seeded = {}
-        for item in valid_defs:
-            vid = item["id"]
-            default_st = self._normalize_valve_state(item.get("normal_state", "CLOSED"))
-            seeded[vid] = self._valves.get(vid, default_st)
-        self._valves = seeded
-        self.config_changed.emit()
-        self.valves_changed.emit()
-
-    def _get_valve_def(self, valve_id: str) -> dict:
-        for item in self._valve_definitions:
-            if item.get("id") == valve_id:
-                return item
-        return {}
-
+    # ------------------------------------------------------------------
+    # Actuator & Connection State
+    # ------------------------------------------------------------------
     @QtCore.Property(bool, notify=armed_changed)
     def armed(self) -> bool:
-        return self._armed
+        return self.actuator_controller.armed
 
     @armed.setter
-    def armed(self, value: bool):
-        value = bool(value)
-        if self._armed != value:
-            self._armed = value
-            self.armed_changed.emit(value)
+    def armed(self, value: bool) -> None:
+        self.actuator_controller.armed = value
 
     @QtCore.Slot(bool)
-    def set_armed(self, value: bool):
+    def set_armed(self, value: bool) -> None:
         self.armed = value
 
     @QtCore.Property("QVariantList", notify=config_changed)
     def valve_definitions(self) -> list:
-        return list(self._valve_definitions)
+        return self.actuator_controller.valve_definitions
 
     @QtCore.Property("QVariantMap", notify=valves_changed)
     def valves(self) -> dict:
-        return dict(self._valves)
+        return self.actuator_controller.valves
 
     @QtCore.Slot(bool)
-    def on_ws_connected_changed(self, connected: bool):
-        """Disarms system and emits disconnect signals on True -> False."""
+    def on_ws_connected_changed(self, connected: bool) -> None:
         connected = bool(connected)
         was_connected = self._ws_connected
         self._ws_connected = connected
         if connected and not was_connected:
             self._prompted_server_recording = False
             self.refresh_remote_data()
-            if self._recording and self._record_file_path:
+            rec_path = self.telemetry_store.record_file_path
+            if self.recording and rec_path is not None:
                 payload = {
                     "type": "record",
                     "command": "RECORD",
                     "active": True,
-                    "filename": self._record_file_path.name,
+                    "filename": rec_path.name,
                 }
                 self.ws_send_requested.emit(json.dumps(payload))
         elif not connected:
             self._prompted_server_recording = False
             self.set_armed(False)
-            if self._recording:
-                self._stop_recording()
+            if self.recording:
+                self.set_recording(False)
                 self.log_warn("Server went offline; telemetry recording stopped.")
             if was_connected:
                 self.disconnected.emit()
                 self.websocket_closed.emit()
 
-    # local & remote data management
+    @QtCore.Slot(str, str)
+    def actuate_valve(self, valve_id: str, action: str) -> None:
+        self.actuator_controller.actuate_valve(
+            valve_id, action, self.ws_send_requested.emit, self.log_warn
+        )
 
+    @QtCore.Slot()
+    def abort(self) -> None:
+        self.actuator_controller.abort(self.ws_send_requested.emit, self.log_warn)
+
+    # ------------------------------------------------------------------
+    # Local, External & HTTP Remote Data Management
+    # ------------------------------------------------------------------
     @QtCore.Property("QVariantList", notify=local_data_changed)
     def local_data(self) -> list:
-        return list(self._local_data)
+        return self.log_manager.local_data
 
     @QtCore.Property("QVariantList", notify=remote_data_changed)
     def remote_data(self) -> list:
-        return list(self._remote_data)
+        return self.log_manager.remote_data
 
     @QtCore.Property("QVariantList", notify=external_data_changed)
     def external_data(self) -> list:
-        raw = self._config_data.get("external_data", [])
-        if not isinstance(raw, list):
-            return []
-        return [str(p) for p in raw if str(p).strip()]
-
-    def _set_external_data_list(self, paths: list[str]):
-        self._config_data["external_data"] = paths
-        self.save_config(self._config_data)
-        self.external_data_changed.emit()
+        return self.config_store.external_data
 
     @QtCore.Slot(str)
-    def add_external_data(self, file_path: str):
-        """Persists an externally opened telemetry file path in config.json."""
-        clean = file_path.strip()
-        if not clean:
-            return
-        current = self.external_data
-        updated = [clean] + [p for p in current if p != clean]
-        if updated != current:
-            self._set_external_data_list(updated)
+    def add_external_data(self, file_path: str) -> None:
+        self.config_store.add_external_data(file_path)
 
     @QtCore.Slot(str)
-    def hide_external_data(self, file_path: str):
-        """Removes an external telemetry file from the persisted list."""
-        clean = file_path.strip()
-        current = self.external_data
-        updated = [p for p in current if p != clean]
-        if updated != current:
-            self._set_external_data_list(updated)
-            self.log_info(f'Hidden external log "{Path(clean).name}".')
+    def hide_external_data(self, file_path: str) -> None:
+        self.config_store.hide_external_data(file_path)
 
     @QtCore.Slot(result="QVariantList")
     def refresh_local_data(self) -> list:
-        """Scans CONFIG_DIR / 'data' for telemetry files."""
-        self._local_data = list_local_data_files()
-        self.local_data_changed.emit()
-        return self._local_data
+        return self.log_manager.refresh_local_data()
 
     @QtCore.Slot()
-    def refresh_remote_data(self):
-        """Requests the remote telemetry file list from the server."""
-        payload = {"type": "remote_data_req", "operation": "list"}
-        self.ws_send_requested.emit(json.dumps(payload))
+    def refresh_remote_data(self) -> None:
+        self.log_manager.refresh_remote_data(
+            self.server_url, self._ws_connected, self.ws_send_requested.emit
+        )
 
     @QtCore.Slot(str)
-    def download_remote_data(self, filename: str):
-        """Requests a remote telemetry file to save into local data."""
-        clean_name = Path(filename.strip()).name
-        if not clean_name:
-            self.log_warn("No remote file selected to download.")
-            return
-        payload = {
-            "type": "remote_data_req",
-            "operation": "get",
-            "filename": clean_name,
-            "mode": "download",
-        }
-        self.ws_send_requested.emit(json.dumps(payload))
+    def download_remote_data(self, filename: str) -> None:
+        self.log_manager.fetch_remote_file(
+            self.server_url,
+            filename,
+            mode="download",
+            ws_connected=self._ws_connected,
+            ws_send_fn=self.ws_send_requested.emit,
+        )
 
     @QtCore.Slot(str, str)
     @QtCore.Slot(str)
-    def push_data_to_remote(self, mode_or_path: str, filename: str = ""):
-        """Pushes a local or external CSV/JSONL telemetry file to the server."""
-        target = (filename if filename else mode_or_path).strip()
-        if not target:
-            self.log_warn("No local file selected to push.")
-            return
+    def push_data_to_remote(self, mode_or_path: str, filename: str = "") -> None:
         if not self._ws_connected:
             self.log_warn("Cannot push data: not connected to the valve cart server.")
             return
-
-        try:
-            resolved_path = resolve_data_file(target, self._known_channels)
-        except Exception as err:
-            self.log_error(f'Failed to resolve data file "{target}": {err}')
-            return
-
-        if resolved_path.suffix.lower() not in (".csv", ".jsonl"):
-            self.log_warn(
-                f'Cannot push "{resolved_path.name}": only .csv or .jsonl files are supported.'
-            )
-            return
-
-        try:
-            content = resolved_path.read_text(encoding="utf-8", errors="replace")
-        except Exception as err:
-            self.log_error(f'Failed to read "{resolved_path.name}" for upload: {err}')
-            return
-
-        payload = {
-            "type": "remote_data_req",
-            "operation": "put",
-            "filename": resolved_path.name,
-            "content": content,
-        }
-        self.ws_send_requested.emit(json.dumps(payload))
-        self.log_info(f'Pushing "{resolved_path.name}" to valve cart...')
+        target = filename if filename else mode_or_path
+        self.log_manager.push_data_to_remote(
+            self.server_url,
+            target,
+            self.telemetry_store.known_channels,
+            ws_connected=self._ws_connected,
+            ws_send_fn=self.ws_send_requested.emit,
+        )
 
     @QtCore.Slot(str, str)
-    def mark_data_for_deletion(self, mode: str, filename: str):
-        self._pending_deletions.add((mode, filename))
+    def mark_data_for_deletion(self, mode: str, filename: str) -> None:
+        self.log_manager.mark_data_for_deletion(mode, filename)
 
     @QtCore.Slot(str, str)
-    def unmark_data_for_deletion(self, mode: str, filename: str):
-        self._pending_deletions.discard((mode, filename))
+    def unmark_data_for_deletion(self, mode: str, filename: str) -> None:
+        self.log_manager.unmark_data_for_deletion(mode, filename)
 
     @QtCore.Slot(str, str, str, result=bool)
     def rename_data(self, mode: str, old_name: str, new_name: str) -> bool:
-        """Renames a local, external, or remote telemetry file."""
-        new_clean = Path(new_name.strip()).name
-        if not new_clean:
-            self.log_warn("New filename cannot be empty.")
-            return False
-
-        if mode == "remote":
-            if Path(new_clean).suffix == "" and Path(old_name).suffix:
-                new_clean = new_clean + Path(old_name).suffix
-            payload = {
-                "type": "remote_data_req",
-                "operation": "rename",
-                "old_name": old_name,
-                "new_name": new_clean,
-            }
-            self.ws_send_requested.emit(json.dumps(payload))
-            self._remote_data = [
-                new_clean if item == old_name else item for item in self._remote_data
-            ]
-            self.remote_data_changed.emit()
-            self.log_info(f'Requested remote rename "{old_name}" -> "{new_clean}".')
-            return True
-
-        try:
-            dst = rename_data_file(mode, old_name, new_clean)
-            if mode == "local":
-                self.refresh_local_data()
-            elif mode == "external":
-                updated = [str(dst) if p == old_name else p for p in self.external_data]
-                self._set_external_data_list(updated)
-            self.log_info(f'Renamed "{Path(old_name).name}" to "{dst.name}".')
-            return True
-        except Exception as err:
-            self.log_error(f'Failed to rename "{old_name}": {err}')
-            return False
-
-    def _prune_deleted_file_entry(self, mode: str, filename: str):
-        if mode == "local":
-            self.refresh_local_data()
-        elif mode == "external":
-            updated = [p for p in self.external_data if p != filename]
-            self._set_external_data_list(updated)
+        return self.log_manager.rename_data(
+            mode,
+            old_name,
+            new_name,
+            self.config_store,
+            self.server_url,
+            self._ws_connected,
+            self.ws_send_requested.emit,
+        )
 
     @QtCore.Slot(str, str, result=bool)
     def delete_data(self, mode: str, filename: str) -> bool:
-        """Deletes a local, external, or remote telemetry file."""
-        self._pending_deletions.discard((mode, filename))
-        if mode == "remote":
-            payload = {
-                "type": "remote_data_req",
-                "operation": "delete",
-                "filename": filename,
-            }
-            self.ws_send_requested.emit(json.dumps(payload))
-            if filename in self._remote_data:
-                self._remote_data.remove(filename)
-                self.remote_data_changed.emit()
-            self.log_info(f'Deleted remote file "{filename}".')
-            return True
+        return self.log_manager.delete_data(
+            mode,
+            filename,
+            self.config_store,
+            self.server_url,
+            self._ws_connected,
+            self.ws_send_requested.emit,
+        )
 
-        try:
-            deleted = delete_data_file(mode, filename)
-            self._prune_deleted_file_entry(mode, filename)
-            self.log_info(f'Deleted "{deleted.name}".')
-            return True
-        except FileNotFoundError:
-            self._prune_deleted_file_entry(mode, filename)
-            return False
-        except Exception as err:
-            self.log_error(f'Failed to delete "{filename}": {err}')
-            return False
-
-    @QtCore.Slot(str, str)
-    def actuate_valve(self, valve_id: str, action: str):
-        """Validates armed/interlock state and emits an outbound command."""
-        if not self._armed:
-            self.log_warn(f"Cannot actuate {valve_id}: system is SAFE (disarmed).")
-            return
-
-        vdef = self._get_valve_def(valve_id)
-        if vdef.get("external", False):
-            self.log_warn(f"{valve_id} is externally controlled.")
-            return
-
-        current = self._valves.get(valve_id, "")
-        if vdef.get("single_use", False) and current in (
-            "FIRED",
-            "DISCONNECTED",
-        ):
-            self.log_warn(f"{valve_id} is single-use and already {current}.")
-            return
-
-        act = str(action).strip().upper()
-        payload = {
-            "type": "command",
-            "command": "CTRL",
-            "valve": valve_id,
-            "action": act,
-        }
-        self.ws_send_requested.emit(json.dumps(payload))
-
-    @QtCore.Slot()
-    def abort(self):
-        """Sends emergency abort command regardless of armed state."""
-        payload = {"type": "abort", "command": "ABORT"}
-        self.ws_send_requested.emit(json.dumps(payload))
-        self.log_warn("EMERGENCY ABORT command sent.")
-
-    def _apply_valve_state(self, valve_id: str, state: str):
-        norm = self._normalize_valve_state(state)
-        if not valve_id or not norm:
-            return
-        if self._valves.get(valve_id) != norm:
-            self._valves[valve_id] = norm
-            self.valve_state_updated.emit(valve_id, norm)
-            self.valves_changed.emit()
-
-    def _apply_valves_map(self, valves_map: dict):
-        for vid, st in valves_map.items():
-            self._valves[vid] = self._normalize_valve_state(st)
-        self.valves_changed.emit()
-
-    def _apply_live_channels_metadata(self, channels_payload: dict) -> None:
-        new_ch = False
-        for ch_key, ch_info in channels_payload.items():
-            if not isinstance(ch_info, dict):
-                continue
-            key_str = str(ch_key)
-            unit_str = str(ch_info.get("unit") or "").strip()
-            if unit_str:
-                self._live_channel_units[key_str] = unit_str
-            if register_channel_if_missing(
-                self._known_channels, key_str, unit_str or None
-            ):
-                new_ch = True
-        if new_ch:
-            self.channels_changed.emit()
-
-    def _handle_init_or_config_msg(self, msg: dict):
+    # ------------------------------------------------------------------
+    # WebSocket Dispatch & Telemetry Queries
+    # ------------------------------------------------------------------
+    def _handle_init_or_config_msg(self, msg: dict) -> None:
         if "armed" in msg:
             self.set_armed(bool(msg["armed"]))
         valves_payload = msg.get("valves")
         if isinstance(valves_payload, list):
-            self._apply_actuator_definitions(valves_payload)
+            self.actuator_controller.apply_actuator_definitions(valves_payload)
         elif isinstance(valves_payload, dict):
-            self._apply_valves_map(valves_payload)
+            self.actuator_controller.apply_valves_map(valves_payload)
         channels_payload = msg.get("channels")
         if isinstance(channels_payload, dict):
-            self._apply_live_channels_metadata(channels_payload)
+            self.telemetry_store.apply_live_channels_metadata(channels_payload)
         if (
             bool(msg.get("recording", False))
-            and not self._recording
+            and not self.recording
             and not self._prompted_server_recording
         ):
             self._prompted_server_recording = True
-            rec_name = str(msg.get("recording_filename") or msg.get("active_log") or "")
+            rec_name = str(
+                msg.get("recording_filename") or msg.get("active_log") or ""
+            )
             self.server_recording_active_on_connect.emit(rec_name)
 
-    def _handle_valve_state_msg(self, msg: dict):
+    def _handle_valve_state_msg(self, msg: dict) -> None:
         if "valve" in msg and "state" in msg:
-            self._apply_valve_state(msg["valve"], msg["state"])
+            self.actuator_controller.apply_valve_state(msg["valve"], msg["state"])
         valves_map = msg.get("valves")
         if isinstance(valves_map, dict):
-            self._apply_valves_map(valves_map)
+            self.actuator_controller.apply_valves_map(valves_map)
 
-    def _handle_remote_data_list_msg(self, msg: dict):
-        raw_files = msg.get("files", [])
-        parsed_names = []
-        if isinstance(raw_files, list):
-            for entry in raw_files:
-                if isinstance(entry, dict) and entry.get("name"):
-                    parsed_names.append(str(entry["name"]))
-                elif isinstance(entry, str) and entry.strip():
-                    parsed_names.append(entry.strip())
-        self._remote_data = parsed_names
-        self.remote_data_changed.emit()
-
-    def _apply_pulled_recording_file(
-        self, fname: str, dest_path: Path, overwrote: bool = False
-    ):
-        """Populates live telemetry in memory from a pulled server file."""
-        records, seconds_list, cols, csv_units = parse_telemetry_file_with_units(
-            dest_path
-        )
-        self._live_channel_units.update(csv_units)
-        new_ch = False
-        for c in cols:
-            if register_channel_if_missing(
-                self._known_channels, c, csv_unit=csv_units.get(c)
-            ):
-                new_ch = True
-        self._live_records = list(records)
-        self._live_seconds = list(seconds_list)
-        if records:
-            last = records[-1]
-            self._latest_telemetry = dict(last)
-        if new_ch:
-            self.channels_changed.emit()
-        self.telemetry_changed.emit()
-        suffix = ", overwrote existing local log" if overwrote else ""
-        self.log_info(
-            f'Pulled current recorded state from "{fname}" '
-            f"({len(records)} samples{suffix})."
+    def _handle_remote_data_content_msg(self, msg: dict) -> None:
+        self.log_manager.handle_remote_data_content_msg(
+            msg,
+            on_saved_cb=lambda fname, dest, ow, mode: (
+                self.telemetry_store.load_resolved_file("remote", fname, dest)
+                if mode == "load"
+                else self.telemetry_store.apply_pulled_recording_file(
+                    fname, dest, overwrote=ow
+                )
+            ),
         )
 
-    def _handle_remote_data_content_msg(self, msg: dict):
-        fname = Path(str(msg.get("filename", ""))).name
-        content = msg.get("content", "")
-        req_mode = str(msg.get("mode", "download")).lower()
-        if not fname and req_mode == "pull_recording":
-            fname = f"telemetry_pull_{time.strftime('%Y_%m_%d_%H%M%S')}.csv"
-        if not fname:
-            return
-        dest_dir = CONFIG_DIR / "data"
-        try:
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            dest_path = dest_dir / fname
-            overwrote = dest_path.exists()
-            with open(dest_path, "w", encoding="utf-8") as f:
-                f.write(str(content))
-            self.refresh_local_data()
-            if req_mode == "load":
-                self._load_resolved_file("remote", fname, dest_path)
-            elif req_mode == "pull_recording":
-                self._apply_pulled_recording_file(fname, dest_path, overwrote=overwrote)
-            else:
-                self.log_info(f'Downloaded "{fname}" to local data.')
-        except Exception as err:
-            self.log_error(f'Failed to save remote file "{fname}": {err}')
-
-    def _handle_control_message(self, msg: dict):
+    def _handle_control_message(self, msg: dict) -> None:
         actuators_list = msg.get("actuators") or msg.get("valve_definitions")
         if isinstance(actuators_list, list):
-            self._apply_actuator_definitions(actuators_list)
+            self.actuator_controller.apply_actuator_definitions(actuators_list)
 
         msg_type = msg.get("type")
         handlers = {
@@ -1204,9 +610,11 @@ class Backend(QtCore.QObject):
             "valve_state": self._handle_valve_state_msg,
             "summary": self._handle_valve_state_msg,
             "armed": lambda m: self.set_armed(bool(m.get("armed", False))),
-            "remote_data_list": self._handle_remote_data_list_msg,
+            "remote_data_list": self.log_manager.handle_remote_data_list_msg,
             "remote_data_content": self._handle_remote_data_content_msg,
-            "alert": lambda m: self.log(m.get("level", "WARN"), m.get("message", "")),
+            "alert": lambda m: self.log(
+                m.get("level", "WARN"), m.get("message", "")
+            ),
         }
         handler = handlers.get(msg_type)
         if handler is not None:
@@ -1214,42 +622,13 @@ class Backend(QtCore.QObject):
         elif msg.get("identifier") == "FEEDBACK":
             data = msg.get("data", {})
             if isinstance(data, dict) and "valve" in data and "action" in data:
-                self._apply_valve_state(data["valve"], data["action"])
-
-    # live WebSocket telemetry ingestion & file loading
-
-    def _append_to_active_recording(self, ingested: list):
-        if not (self._recording and self._record_file_path and ingested):
-            return
-        try:
-            append_recording_rows(
-                self._record_file_path, self._record_columns, ingested
-            )
-            self._record_sample_count += len(ingested)
-        except Exception as err:
-            self.log_error(f"Failed writing to recording CSV: {err}")
-            self.set_recording(False)
-
-    def _flush_telemetry_ui_update(self):
-        if self._telemetry_ui_dirty:
-            self._telemetry_ui_dirty = False
-            self._last_telemetry_emit_ts = time.monotonic()
-            self.telemetry_changed.emit()
-
-    def _schedule_telemetry_ui_update(self):
-        self._telemetry_ui_dirty = True
-        interval_s = 1.0 / float(max(1, self.view_refresh_hz))
-        now = time.monotonic()
-        elapsed = now - self._last_telemetry_emit_ts
-        if elapsed >= interval_s and not self._telemetry_ui_timer.active:
-            self._flush_telemetry_ui_update()
-        elif not self._telemetry_ui_timer.active:
-            wait_ms = max(8, int((interval_s - elapsed) * 1000.0))
-            self._telemetry_ui_timer.start(wait_ms)
+                self.actuator_controller.apply_valve_state(
+                    data["valve"], data["action"]
+                )
 
     @QtCore.Slot(str)
-    def ingest_ws_message(self, raw_message: str):
-        """ingests incoming WebSocket frames into control and telemetry."""
+    def ingest_ws_message(self, raw_message: str) -> None:
+        """Ingests incoming WebSocket frames into control and telemetry."""
         parsed_frames: list[dict] = []
         for line in raw_message.splitlines():
             stripped = line.strip()
@@ -1263,174 +642,20 @@ class Backend(QtCore.QObject):
                 self._handle_control_message(parsed)
                 parsed_frames.append(parsed)
 
-        res = ingest_ws_telemetry_frames(
-            parsed_frames,
-            self._known_channels,
-            self._live_records,
-            self._live_seconds,
-            self._live_t0,
-            self._latest_telemetry,
-        )
-        new_channels, ingested, self._live_t0, self._latest_telemetry = res
-        self._append_to_active_recording(ingested)
-        if new_channels:
-            self.channels_changed.emit()
-        if ingested:
-            self._schedule_telemetry_ui_update()
-
-    def _apply_parsed_telemetry(
-        self,
-        mode: str,
-        target: str,
-        resolved_str: str,
-        records: list,
-        seconds_list: list,
-        cols: list,
-        csv_units: dict | None = None,
-    ) -> dict:
-        self._loaded_channel_units = dict(csv_units or {})
-        new_ch = False
-        for c in cols:
-            if register_channel_if_missing(
-                self._known_channels, c, csv_unit=self._loaded_channel_units.get(c)
-            ):
-                new_ch = True
-        if new_ch or self._loaded_channel_units:
-            self.channels_changed.emit()
-
-        self._loaded_records = records
-        self._loaded_seconds = seconds_list
-        min_t = seconds_list[0] if seconds_list else 0.0
-        max_t = seconds_list[-1] if seconds_list else 0.0
-
-        self._loaded_meta = {
-            "source": mode,
-            "path": target,
-            "resolvedPath": resolved_str,
-            "name": Path(target).name,
-            "columns": list(cols),
-            "units": dict(self._loaded_channel_units),
-            "count": len(records),
-            "minTime": min_t,
-            "maxTime": max_t,
-            "duration": max(0.0, max_t - min_t),
-        }
-
-        name = Path(target).name
-        self.log_info(f'Loaded data "{name}" ({mode}, {len(records)} samples)')
-        self.data_loaded.emit(mode, target, self._loaded_meta)
-        self.telemetry_changed.emit()
-        return self._loaded_meta
-
-    def _on_worker_finished(
-        self,
-        worker: _FileParseWorker,
-        mode: str,
-        target: str,
-        resolved_str: str,
-        records: list,
-        seconds_list: list,
-        cols: list,
-        csv_units: dict,
-    ):
-        if worker in self._active_workers:
-            self._active_workers.remove(worker)
-        self._apply_parsed_telemetry(
-            mode, target, resolved_str, records, seconds_list, cols, csv_units
-        )
-
-    def _on_worker_failed(self, worker: _FileParseWorker, target: str, err_msg: str):
-        if worker in self._active_workers:
-            self._active_workers.remove(worker)
-        self.log_error(f'Failed to parse data file "{target}": {err_msg}')
-
-    def _load_resolved_file(self, mode: str, target: str, resolved_path: Path) -> dict:
-        try:
-            file_size = resolved_path.stat().st_size
-        except OSError:
-            file_size = 0
-
-        if file_size > LARGE_FILE_BYTES:
-            name = Path(target).name
-            self.log_info(f'Loading large log "{name}" in background...')
-            worker = _FileParseWorker(mode, target, resolved_path)
-            self._active_workers.append(worker)
-            worker.signals.finished.connect(
-                lambda m, t, r, rec, sec, cols, units, w=worker: (
-                    self._on_worker_finished(w, m, t, r, rec, sec, cols, units)
-                )
-            )
-            worker.signals.failed.connect(
-                lambda t, err, w=worker: self._on_worker_failed(w, t, err)
-            )
-            QtCore.QThreadPool.global_instance().start(worker)
-            return {}
-
-        try:
-            records, seconds_list, cols, csv_units = parse_telemetry_file_with_units(
-                resolved_path
-            )
-        except Exception as err:
-            self.log_error(f'Failed to parse data file "{target}": {err}')
-            return {}
-
-        return self._apply_parsed_telemetry(
-            mode, target, str(resolved_path), records, seconds_list, cols, csv_units
+        self.telemetry_store.ingest_telemetry_frames(
+            parsed_frames, self._ws_connected, self.ws_send_requested.emit
         )
 
     @QtCore.Slot(str, str, result="QVariant")
     @QtCore.Slot(str, result="QVariant")
     def load_data(self, mode_or_path: str, file_path: str = "") -> dict:
-        """loads telemetry data (.csv or .jsonl) from the target file."""
         if file_path:
-            mode = mode_or_path
-            target = file_path
+            mode, target = mode_or_path, file_path
         else:
-            mode = "external"
-            target = mode_or_path
-
-        if not target:
-            self.log_warn("No data file specified to load.")
-            return {}
-
-        if mode == "remote" and self._ws_connected:
-            clean_name = Path(target.strip()).name
-            local_cand = CONFIG_DIR / "data" / clean_name
-            if not local_cand.exists():
-                payload = {
-                    "type": "remote_data_req",
-                    "operation": "get",
-                    "filename": clean_name,
-                    "mode": "load",
-                }
-                self.ws_send_requested.emit(json.dumps(payload))
-                return {}
-
-        try:
-            resolved_path = resolve_data_file(target, self._known_channels)
-        except Exception as err:
-            self.log_error(f'Failed to resolve data file "{target}": {err}')
-            return {}
-
-        return self._load_resolved_file(mode, target, resolved_path)
-
-    def _active_source_units(self, source_mode: str) -> dict[str, str]:
-        units = {
-            k: str(v.get("unit", ""))
-            for k, v in self._known_channels.items()
-            if isinstance(v, dict) and v.get("unit")
-        }
-        overlay = (
-            self._live_channel_units
-            if source_mode == "live"
-            else self._loaded_channel_units
+            mode, target = "external", mode_or_path
+        return self.telemetry_store.load_data(
+            mode, target, self._ws_connected, self.ws_send_requested.emit
         )
-        units.update(overlay)
-        if "M_RUN_TANK" in units and "L_RUN_TANK" not in units:
-            units["L_RUN_TANK"] = units["M_RUN_TANK"]
-        elif "L_RUN_TANK" in units and "M_RUN_TANK" not in units:
-            units["M_RUN_TANK"] = units["L_RUN_TANK"]
-        return units
 
     @QtCore.Slot(str, str, float, float, int, bool, int, str, result="QVariantMap")
     @QtCore.Slot(str, str, float, float, int, bool, int, result="QVariantMap")
@@ -1445,64 +670,39 @@ class Backend(QtCore.QObject):
         smoothing_window: int = 1,
         target_unit: str = "",
     ) -> dict:
-        """
-        returns windowed, optionally 3-std outlier-filtered, bucket-downsampled
-        and smoothed time-series points for a given channel, converted to
-        target_unit when provided.
-        """
-        # use loaded file records in history mode, and live records in live
-        use_loaded = source_mode != "live"
-        records = self._loaded_records if use_loaded else self._live_records
-        seconds_list = self._loaded_seconds if use_loaded else self._live_seconds
-        src_units = self._active_source_units(source_mode)
-
-        return query_channel_series(
-            records=records,
-            seconds_list=seconds_list,
-            channel=channel,
-            t_start=t_start,
-            t_end=t_end,
-            max_buckets=max_buckets,
-            filter_outliers_3std=filter_outliers_3std,
-            smoothing_window=smoothing_window,
-            source_unit=src_units.get(channel),
-            target_unit=target_unit or None,
+        return self.telemetry_store.get_channel_data(
+            source_mode,
+            channel,
+            t_start,
+            t_end,
+            max_buckets,
+            filter_outliers_3std,
+            smoothing_window,
+            target_unit,
         )
 
     @QtCore.Slot(str, "QVariantList", result="QVariantMap")
     def get_batch_channel_data(self, source_mode: str, requests: list) -> dict:
-        """returns windowed series for all GraphCards in one batched call."""
-        use_loaded = source_mode != "live"
-        records = self._loaded_records if use_loaded else self._live_records
-        seconds_list = self._loaded_seconds if use_loaded else self._live_seconds
-        src_units = self._active_source_units(source_mode)
-        return query_batch_channels(records, seconds_list, requests, src_units)
+        return self.telemetry_store.get_batch_channel_data(source_mode, requests)
 
     @QtCore.Slot(str, result=str)
     @QtCore.Slot(result=str)
     def open_data(self, open_where: str = "") -> str:
-        open_dir = open_where if open_where else Path.home()
+        open_dir = open_where if open_where else str(Path.home())
         file_filter = (
             "Telemetry Files (*.csv *.jsonl);;"
             "CSV Files (*.csv);;"
             "JSONL Files (*.jsonl);;"
             "All Files (*)"
         )
-
-        file = QFileDialog.get_open_file_name(
-            None,
-            "Open data",
-            f"{open_dir}",
-            file_filter,
+        file_path, _ = QFileDialog.getOpenFileName(
+            None, "Open data", open_dir, file_filter
         )
-
-        if file[0]:
-            msg = f'User opened data "{file[0]}"'
-            self.log_info(msg)
-            self.add_external_data(file[0])
-            self.data_opened.emit(file[0])
-            self.load_data("external", file[0])
-            return file[0]
-        else:
-            self.log_info("Nothing picked.")
-            return ""
+        if file_path:
+            self.log_info(f'User opened data "{file_path}"')
+            self.add_external_data(file_path)
+            self.data_opened.emit(file_path)
+            self.load_data("external", file_path)
+            return file_path
+        self.log_info("Nothing picked.")
+        return ""
