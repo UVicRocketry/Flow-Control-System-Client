@@ -246,6 +246,49 @@ class TestSplitControllersAndBackendFacade(unittest.TestCase):
                 )
                 self.assertAlmostEqual(res["mean"], 689.47572932, places=3)
 
+    def test_telemetry_store_parsed_dataclass_and_worker_signal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            csv_path = tmp_path / "sample.csv"
+            csv_path.write_text(
+                "kPa,s\nP_RUN_TANK,seconds\n100.0,0.0\n200.0,1.0\n",
+                encoding="utf-8",
+            )
+            with _temp_config_patch_stack(tmp_path):
+                logs = LogManager()
+                cfg = ConfigStore(logs)
+                cfg.load_config()
+                store = telemetry_store.TelemetryStore(cfg, logs)
+
+                meta = store.load_resolved_file("local", "sample.csv", csv_path)
+                self.assertEqual(meta["name"], "sample.csv")
+                self.assertEqual(meta["source"], "local")
+                self.assertEqual(meta["count"], 2)
+                self.assertEqual(store.loaded_meta, meta)
+                self.assertEqual(store.loaded_meta["units"], {"P_RUN_TANK": "kPa"})
+
+                worker = telemetry_store._FileParseWorker(
+                    "external", str(csv_path), csv_path
+                )
+                store._active_workers.append(worker)
+                emitted: list[object] = []
+
+                def _on_finished(parsed, w=worker) -> None:
+                    emitted.append(parsed)
+                    store._on_worker_finished(w, parsed)
+
+                worker.signals.finished.connect(_on_finished)
+                worker.run()
+                QtCore.QCoreApplication.processEvents()
+
+                self.assertEqual(len(emitted), 1)
+                self.assertIsInstance(
+                    emitted[0], telemetry_store._ParsedTelemetryFile
+                )
+                self.assertNotIn(worker, store._active_workers)
+                self.assertEqual(store.loaded_meta["source"], "external")
+                self.assertEqual(store.loaded_meta["count"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

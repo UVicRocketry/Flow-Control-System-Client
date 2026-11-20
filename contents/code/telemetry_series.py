@@ -9,6 +9,7 @@ import bisect
 import json
 import math
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 try:
@@ -923,11 +924,22 @@ def query_channel_series(
     return apply_unit_conversion_to_series(series, source_unit, target_unit)
 
 
+@dataclass(slots=True)
+class _WindowGroup:
+    """Batch query requests sharing a resolved time-window slice."""
+
+    w_start: float
+    w_end: float
+    i_left: int
+    i_right: int
+    requests: list[dict] = field(default_factory=list)
+
+
 def _group_requests_by_window(
     records: list, seconds_list: list, requests: list
-) -> list[tuple[float, float, int, int, list[dict]]]:
+) -> list[_WindowGroup]:
     """groups batch requests by shared (tStart, tEnd) bounds and bisect slice."""
-    bounds_groups: dict = {}
+    bounds_groups: dict[tuple[float, float], _WindowGroup] = {}
     for req in requests:
         if not isinstance(req, dict):
             continue
@@ -942,9 +954,9 @@ def _group_requests_by_window(
                 i_right = bisect.bisect_right(seconds_list, w_end)
             else:
                 i_left, i_right = 0, 0
-            group = (w_start, w_end, i_left, i_right, [])
+            group = _WindowGroup(w_start, w_end, i_left, i_right)
             bounds_groups[bounds_key] = group
-        group[4].append(req)
+        group.requests.append(req)
     return list(bounds_groups.values())
 
 
@@ -974,36 +986,34 @@ def _extract_window_channel_arrays(
 
 def _evaluate_window_group(
     records: list,
-    w_start: float,
-    w_end: float,
-    i_left: int,
-    i_right: int,
-    group_reqs: list[dict],
+    group: _WindowGroup,
     results: dict,
     source_units: dict[str, str] | None = None,
 ) -> None:
     """computes series results for all requests sharing a single time-window slice."""
-    if i_left >= i_right:
-        for req in group_reqs:
-            results[str(req.get("index", ""))] = _empty_series_result(w_start, w_end)
+    if group.i_left >= group.i_right:
+        for req in group.requests:
+            results[str(req.get("index", ""))] = _empty_series_result(
+                group.w_start, group.w_end
+            )
         return
 
     channel_arrays = _extract_window_channel_arrays(
-        records, i_left, i_right, group_reqs
+        records, group.i_left, group.i_right, group.requests
     )
     src_map = source_units or {}
-    for req in group_reqs:
+    for req in group.requests:
         card_id = str(req.get("index", ""))
         ch = str(req.get("channel", ""))
         if not ch:
-            results[card_id] = _empty_series_result(w_start, w_end)
+            results[card_id] = _empty_series_result(group.w_start, group.w_end)
             continue
         t_vals, v_vals = channel_arrays[ch]
         series = _series_from_channel_arrays(
             t_vals,
             v_vals,
-            w_start,
-            w_end,
+            group.w_start,
+            group.w_end,
             int(req.get("maxBuckets", 300)),
             bool(req.get("filterOutliers3Std", False)),
             int(req.get("smoothingWindow", 1)),
@@ -1027,18 +1037,7 @@ def query_batch_channels(
     if not requests:
         return results
 
-    for w_start, w_end, i_left, i_right, group_reqs in _group_requests_by_window(
-        records, seconds_list, requests
-    ):
-        _evaluate_window_group(
-            records,
-            w_start,
-            w_end,
-            i_left,
-            i_right,
-            group_reqs,
-            results,
-            source_units,
-        )
+    for group in _group_requests_by_window(records, seconds_list, requests):
+        _evaluate_window_group(records, group, results, source_units)
 
     return results
