@@ -31,20 +31,17 @@ class Backend(QtCore.QObject):
     reconnect_interval_ms_changed = QtCore.Signal(int)
     connect_requested = QtCore.Signal()
     log_sent = QtCore.Signal(str, str)
-    data_opened = QtCore.Signal(str)
     data_loaded = QtCore.Signal(str, str, "QVariant")
     local_data_changed = QtCore.Signal()
     remote_data_changed = QtCore.Signal()
     external_data_changed = QtCore.Signal()
     telemetry_changed = QtCore.Signal()
-    telemetry_point_received = QtCore.Signal("QVariantMap")
     channels_changed = QtCore.Signal()
     armed_changed = QtCore.Signal(bool)
     valves_changed = QtCore.Signal()
     valve_state_updated = QtCore.Signal(str, str)
     ws_send_requested = QtCore.Signal(str)
     disconnected = QtCore.Signal()
-    websocket_closed = QtCore.Signal()
     recording_changed = QtCore.Signal(bool)
     server_recording_active_on_connect = QtCore.Signal(str)
     view_refresh_hz_changed = QtCore.Signal(int)
@@ -119,14 +116,6 @@ class Backend(QtCore.QObject):
     def log_info(self, msg: str) -> None:
         self.log_manager.log_info(msg)
 
-    @QtCore.Slot(str)
-    def log_warn(self, msg: str) -> None:
-        self.log_manager.log_warn(msg)
-
-    @QtCore.Slot(str)
-    def log_error(self, msg: str) -> None:
-        self.log_manager.log_error(msg)
-
     @QtCore.Slot(str, str)
     def log(self, level: str, msg: str) -> None:
         self.log_manager.log(level, msg)
@@ -149,14 +138,6 @@ class Backend(QtCore.QObject):
     @QtCore.Property(str, notify=config_changed)
     def config_dir(self) -> str:
         return self.config_store.config_dir
-
-    @QtCore.Property(str, notify=config_changed)
-    def config_file(self) -> str:
-        return self.config_store.config_file
-
-    @QtCore.Property(bool, constant=True)
-    def is_dev_mode(self) -> bool:
-        return self.config_store.is_dev_mode
 
     @QtCore.Property(str, notify=server_url_changed)
     def server_url(self) -> str:
@@ -205,35 +186,6 @@ class Backend(QtCore.QObject):
         self.camera_controller.apply_camera_transport()
         return data
 
-    @QtCore.Slot("QVariantMap", result=bool)
-    def save_config(self, data: dict) -> bool:
-        return self.config_store.save_config(data)
-
-    @QtCore.Slot(str, result="QVariant")
-    @QtCore.Slot(str, "QVariant", result="QVariant")
-    def get_setting(self, key: str, default=None):
-        return self.config_store.get_setting(key, default)
-
-    @QtCore.Slot(str, "QVariant")
-    def set_setting(self, key: str, value) -> None:
-        self.config_store.set_setting(key, value)
-
-    @QtCore.Slot(str)
-    def set_server_url(self, url: str) -> None:
-        self.server_url = url
-
-    @QtCore.Slot(bool)
-    def set_auto_reconnect(self, enabled: bool) -> None:
-        self.auto_reconnect = enabled
-
-    @QtCore.Slot(int)
-    def set_reconnect_interval_ms(self, interval: int) -> None:
-        self.reconnect_interval_ms = interval
-
-    @QtCore.Slot(int)
-    def set_view_refresh_hz(self, hz: int) -> None:
-        self.view_refresh_hz = hz
-
     @QtCore.Slot(str)
     def set_min_log_level(self, level: str) -> None:
         self.min_log_level = level
@@ -262,16 +214,12 @@ class Backend(QtCore.QObject):
         )
 
     @QtCore.Slot()
-    def connect_to_server(self) -> None:
-        self.connect_requested.emit()
-
-    @QtCore.Slot()
     def connect(self) -> None:
-        self.connect_to_server()
+        self.connect_requested.emit()
 
     @QtCore.Slot(str)
     def show_in_file_browser(self, url: str) -> None:
-        reveal_in_file_browser(url, self.log_info, self.log_warn)
+        reveal_in_file_browser(url, self.log_info, self.warn)
 
     # ------------------------------------------------------------------
     # Camera Controls
@@ -331,10 +279,6 @@ class Backend(QtCore.QObject):
     # ------------------------------------------------------------------
     # Telemetry Config, Recording & Queries
     # ------------------------------------------------------------------
-    @QtCore.Slot()
-    def load_graphs_config(self) -> None:
-        self.telemetry_store.load_graphs_config()
-
     @QtCore.Slot("QVariantList", result=bool)
     def save_graphs_config(self, cards: list) -> bool:
         return self.telemetry_store.save_graphs_config(cards)
@@ -381,7 +325,7 @@ class Backend(QtCore.QObject):
     @QtCore.Slot(str)
     def pull_server_recording_state(self, filename: str = "") -> None:
         if not self._ws_connected:
-            self.log_warn("Cannot pull server recording while disconnected.")
+            self.warn("Cannot pull server recording while disconnected.")
             return
         self.log_info("Pulling current recorded state from server...")
         self.log_manager.fetch_remote_file(
@@ -393,8 +337,6 @@ class Backend(QtCore.QObject):
                     fname, dest, overwrote=ow
                 )
             ),
-            ws_connected=self._ws_connected,
-            ws_send_fn=self.ws_send_requested.emit,
         )
 
     # ------------------------------------------------------------------
@@ -407,10 +349,6 @@ class Backend(QtCore.QObject):
     @armed.setter
     def armed(self, value: bool) -> None:
         self.actuator_controller.armed = value
-
-    @QtCore.Slot(bool)
-    def set_armed(self, value: bool) -> None:
-        self.armed = value
 
     @QtCore.Property("QVariantList", notify=config_changed)
     def valve_definitions(self) -> list:
@@ -439,23 +377,22 @@ class Backend(QtCore.QObject):
                 self.ws_send_requested.emit(json.dumps(payload))
         elif not connected:
             self._prompted_server_recording = False
-            self.set_armed(False)
+            self.armed = False
             if self.recording:
                 self.set_recording(False)
-                self.log_warn("Server went offline; telemetry recording stopped.")
+                self.warn("Server went offline; telemetry recording stopped.")
             if was_connected:
                 self.disconnected.emit()
-                self.websocket_closed.emit()
 
     @QtCore.Slot(str, str)
     def actuate_valve(self, valve_id: str, action: str) -> None:
         self.actuator_controller.actuate_valve(
-            valve_id, action, self.ws_send_requested.emit, self.log_warn
+            valve_id, action, self.ws_send_requested.emit, self.warn
         )
 
     @QtCore.Slot()
     def abort(self) -> None:
-        self.actuator_controller.abort(self.ws_send_requested.emit, self.log_warn)
+        self.actuator_controller.abort(self.ws_send_requested.emit, self.warn)
 
     # ------------------------------------------------------------------
     # Local, External & HTTP Remote Data Management
@@ -486,9 +423,7 @@ class Backend(QtCore.QObject):
 
     @QtCore.Slot()
     def refresh_remote_data(self) -> None:
-        self.log_manager.refresh_remote_data(
-            self.server_url, self._ws_connected, self.ws_send_requested.emit
-        )
+        self.log_manager.refresh_remote_data(self.server_url)
 
     @QtCore.Slot(str)
     def download_remote_data(self, filename: str) -> None:
@@ -496,32 +431,20 @@ class Backend(QtCore.QObject):
             self.server_url,
             filename,
             mode="download",
-            ws_connected=self._ws_connected,
-            ws_send_fn=self.ws_send_requested.emit,
         )
 
     @QtCore.Slot(str, str)
     @QtCore.Slot(str)
     def push_data_to_remote(self, mode_or_path: str, filename: str = "") -> None:
         if not self._ws_connected:
-            self.log_warn("Cannot push data: not connected to the valve cart server.")
+            self.warn("Cannot push data: not connected to the valve cart server.")
             return
         target = filename if filename else mode_or_path
         self.log_manager.push_data_to_remote(
             self.server_url,
             target,
             self.telemetry_store.known_channels,
-            ws_connected=self._ws_connected,
-            ws_send_fn=self.ws_send_requested.emit,
         )
-
-    @QtCore.Slot(str, str)
-    def mark_data_for_deletion(self, mode: str, filename: str) -> None:
-        self.log_manager.mark_data_for_deletion(mode, filename)
-
-    @QtCore.Slot(str, str)
-    def unmark_data_for_deletion(self, mode: str, filename: str) -> None:
-        self.log_manager.unmark_data_for_deletion(mode, filename)
 
     @QtCore.Slot(str, str, str, result=bool)
     def rename_data(self, mode: str, old_name: str, new_name: str) -> bool:
@@ -531,8 +454,6 @@ class Backend(QtCore.QObject):
             new_name,
             self.config_store,
             self.server_url,
-            self._ws_connected,
-            self.ws_send_requested.emit,
         )
 
     @QtCore.Slot(str, str, result=bool)
@@ -542,8 +463,6 @@ class Backend(QtCore.QObject):
             filename,
             self.config_store,
             self.server_url,
-            self._ws_connected,
-            self.ws_send_requested.emit,
         )
 
     # ------------------------------------------------------------------
@@ -551,7 +470,7 @@ class Backend(QtCore.QObject):
     # ------------------------------------------------------------------
     def _handle_init_or_config_msg(self, msg: dict) -> None:
         if "armed" in msg:
-            self.set_armed(bool(msg["armed"]))
+            self.armed = bool(msg["armed"])
         valves_payload = msg.get("valves")
         if isinstance(valves_payload, list):
             self.actuator_controller.apply_actuator_definitions(valves_payload)
@@ -576,18 +495,6 @@ class Backend(QtCore.QObject):
         if isinstance(valves_map, dict):
             self.actuator_controller.apply_valves_map(valves_map)
 
-    def _handle_remote_data_content_msg(self, msg: dict) -> None:
-        self.log_manager.handle_remote_data_content_msg(
-            msg,
-            on_saved_cb=lambda fname, dest, ow, mode: (
-                self.telemetry_store.load_resolved_file("remote", fname, dest)
-                if mode == "load"
-                else self.telemetry_store.apply_pulled_recording_file(
-                    fname, dest, overwrote=ow
-                )
-            ),
-        )
-
     def _handle_control_message(self, msg: dict) -> None:
         actuators_list = msg.get("actuators") or msg.get("valve_definitions")
         if isinstance(actuators_list, list):
@@ -600,9 +507,8 @@ class Backend(QtCore.QObject):
             "config": self._handle_init_or_config_msg,
             "valve_state": self._handle_valve_state_msg,
             "summary": self._handle_valve_state_msg,
-            "armed": lambda m: self.set_armed(bool(m.get("armed", False))),
+            "armed": lambda m: setattr(self, "armed", bool(m.get("armed", False))),
             "remote_data_list": self.log_manager.handle_remote_data_list_msg,
-            "remote_data_content": self._handle_remote_data_content_msg,
             "alert": lambda m: self.log(m.get("level", "WARN"), m.get("message", "")),
         }
         handler = handlers.get(msg_type)
@@ -642,9 +548,7 @@ class Backend(QtCore.QObject):
             mode, target = mode_or_path, file_path
         else:
             mode, target = "external", mode_or_path
-        return self.telemetry_store.load_data(
-            mode, target, self._ws_connected, self.ws_send_requested.emit
-        )
+        return self.telemetry_store.load_data(mode, target)
 
     @QtCore.Slot(str, str, float, float, int, bool, int, str, result="QVariantMap")
     @QtCore.Slot(str, str, float, float, int, bool, int, result="QVariantMap")
@@ -692,7 +596,6 @@ class Backend(QtCore.QObject):
         if file_path:
             self.log_info(f'User opened data "{file_path}"')
             self.add_external_data(file_path)
-            self.data_opened.emit(file_path)
             self.load_data("external", file_path)
             return file_path
         self.log_info("Nothing picked.")

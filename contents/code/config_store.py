@@ -5,8 +5,6 @@ from PySide6 import QtCore
 
 from config_manager import (
     CONFIG_DIR,
-    CONFIG_FILE,
-    is_dev_environment,
     read_app_config,
     write_app_config,
 )
@@ -45,14 +43,6 @@ class ConfigStore(QtCore.QObject):
     @property
     def config_dir(self) -> str:
         return str(CONFIG_DIR)
-
-    @property
-    def config_file(self) -> str:
-        return str(CONFIG_FILE)
-
-    @property
-    def is_dev_mode(self) -> bool:
-        return is_dev_environment()
 
     def _ui_section(self) -> dict:
         ui = self._config_data.get("ui")
@@ -163,13 +153,6 @@ class ConfigStore(QtCore.QObject):
             self.config_changed.emit()
             return True
         return False
-
-    def get_setting(self, key: str, default=None):
-        return self._config_data.get(key, default)
-
-    def set_setting(self, key: str, value) -> None:
-        self._config_data[key] = value
-        self.save_config(self._config_data)
 
     def get_split_config(self) -> dict:
         """Returns saved split view state, pane positions, and ratio."""

@@ -27,41 +27,6 @@ from telemetry_series import (
     register_channel_if_missing,
 )
 
-LARGE_FILE_BYTES = 10 * 1024 * 1024
-
-
-class _FileParseSignals(QtCore.QObject):
-    finished = QtCore.Signal(str, str, str, object, object, object, object)
-    failed = QtCore.Signal(str, str)
-
-
-class _FileParseWorker(QtCore.QRunnable):
-    """Background QRunnable for parsing large (>10 MB) telemetry files."""
-
-    def __init__(self, mode: str, target: str, resolved_path: Path):
-        super().__init__()
-        self.mode = mode
-        self.target = target
-        self.resolved_path = resolved_path
-        self.signals = _FileParseSignals()
-
-    def run(self) -> None:
-        try:
-            records, seconds_list, cols, csv_units = parse_telemetry_file_with_units(
-                self.resolved_path
-            )
-            self.signals.finished.emit(
-                self.mode,
-                self.target,
-                str(self.resolved_path),
-                records,
-                seconds_list,
-                cols,
-                csv_units,
-            )
-        except Exception as err:
-            self.signals.failed.emit(self.target, str(err))
-
 
 class TelemetryStore(QtCore.QObject):
     """Owns live/loaded telemetry buffers, graph configs, and CSV recording."""
@@ -79,12 +44,9 @@ class TelemetryStore(QtCore.QObject):
         self._record_file_path: Path | None = None
         self._record_columns: list[str] = []
         self._record_sample_count = 0
-        self._active_workers: list[_FileParseWorker] = []
 
         self._known_channels: dict = {}
         self._default_graph_cards: list[dict] = []
-        self._live_records: list[dict] = []
-        self._live_seconds: list[float] = []
         self._live_buffer = ColumnarTelemetryBuffer()
         self._live_t0: float | None = None
         self._telemetry_ui_dirty = False
@@ -100,8 +62,6 @@ class TelemetryStore(QtCore.QObject):
             "packet_id": 0,
             "values": {k: 0.0 for k in self._known_channels},
         }
-        self._loaded_records: list[dict] = []
-        self._loaded_seconds: list[float] = []
         self._loaded_buffer = ColumnarTelemetryBuffer(max_samples=0)
         self._loaded_channel_units: dict[str, str] = {}
         self._live_channel_units: dict[str, str] = {}
@@ -281,9 +241,7 @@ class TelemetryStore(QtCore.QObject):
         ws_send_fn(json.dumps({"type": "record", "command": "RECORD", "active": False}))
         self._log_manager.refresh_local_data()
         if ws_connected:
-            self._log_manager.refresh_remote_data(
-                self._config_store.server_url, ws_connected, ws_send_fn
-            )
+            self._log_manager.refresh_remote_data(self._config_store.server_url)
         self._log_manager.log_info(
             f'Stopped recording "{fname}" ({count} samples saved).'
         )
@@ -333,8 +291,8 @@ class TelemetryStore(QtCore.QObject):
         res = ingest_ws_telemetry_frames(
             parsed_frames,
             self._known_channels,
-            self._live_records,
-            self._live_seconds,
+            [],
+            [],
             self._live_t0,
             self._latest_telemetry,
         )
@@ -360,9 +318,7 @@ class TelemetryStore(QtCore.QObject):
                 self._known_channels, c, csv_unit=csv_units.get(c)
             ):
                 new_ch = True
-        self._live_records = list(records)
-        self._live_seconds = list(seconds_list)
-        self._live_buffer.load_records(self._live_records, self._live_seconds)
+        self._live_buffer.load_records(records, seconds_list)
         if records:
             self._latest_telemetry = dict(records[-1])
         if new_ch:
@@ -394,8 +350,6 @@ class TelemetryStore(QtCore.QObject):
         if new_ch or self._loaded_channel_units:
             self.channels_changed.emit()
 
-        self._loaded_records = records
-        self._loaded_seconds = seconds_list
         self._loaded_buffer.load_records(records, seconds_list)
         min_t = seconds_list[0] if seconds_list else 0.0
         max_t = seconds_list[-1] if seconds_list else 0.0
@@ -421,54 +375,9 @@ class TelemetryStore(QtCore.QObject):
         self.telemetry_changed.emit()
         return self._loaded_meta
 
-    def _on_worker_finished(
-        self,
-        worker: _FileParseWorker,
-        mode: str,
-        target: str,
-        resolved_str: str,
-        records: list,
-        seconds_list: list,
-        cols: list,
-        csv_units: dict,
-    ) -> None:
-        if worker in self._active_workers:
-            self._active_workers.remove(worker)
-        self._apply_parsed_telemetry(
-            mode, target, resolved_str, records, seconds_list, cols, csv_units
-        )
-
-    def _on_worker_failed(
-        self, worker: _FileParseWorker, target: str, err_msg: str
-    ) -> None:
-        if worker in self._active_workers:
-            self._active_workers.remove(worker)
-        self._log_manager.log_error(f'Failed to parse data file "{target}": {err_msg}')
-
     def load_resolved_file(
         self, mode: str, target: str, resolved_path: Path
     ) -> dict:
-        try:
-            file_size = resolved_path.stat().st_size
-        except OSError:
-            file_size = 0
-
-        if file_size > LARGE_FILE_BYTES:
-            name = Path(target).name
-            self._log_manager.log_info(f'Loading large log "{name}" in background...')
-            worker = _FileParseWorker(mode, target, resolved_path)
-            self._active_workers.append(worker)
-            worker.signals.finished.connect(
-                lambda m, t, r, rec, sec, cols, units, w=worker: (
-                    self._on_worker_finished(w, m, t, r, rec, sec, cols, units)
-                )
-            )
-            worker.signals.failed.connect(
-                lambda t, err, w=worker: self._on_worker_failed(w, t, err)
-            )
-            QtCore.QThreadPool.globalInstance().start(worker)
-            return {}
-
         try:
             records, seconds_list, cols, csv_units = parse_telemetry_file_with_units(
                 resolved_path
@@ -481,13 +390,7 @@ class TelemetryStore(QtCore.QObject):
             mode, target, str(resolved_path), records, seconds_list, cols, csv_units
         )
 
-    def load_data(
-        self,
-        mode: str,
-        target: str,
-        ws_connected: bool,
-        ws_send_fn,
-    ) -> dict:
+    def load_data(self, mode: str, target: str) -> dict:
         if not target:
             self._log_manager.log_warn("No data file specified to load.")
             return {}
@@ -501,8 +404,6 @@ class TelemetryStore(QtCore.QObject):
                     clean_name,
                     mode="load",
                     on_saved_cb=self._on_remote_saved,
-                    ws_connected=ws_connected,
-                    ws_send_fn=ws_send_fn,
                 )
                 return {}
 

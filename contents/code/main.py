@@ -7,13 +7,18 @@ Starts PySide6 Application and loads QML interface.
 import os
 import signal
 import sys
-import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QGuiApplication, QIcon
-from PySide6.QtQml import QQmlApplicationEngine
-from PySide6.QtWidgets import QApplication, QMessageBox
+try:
+    import numpy  # noqa: F401
+    import platformdirs  # noqa: F401
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QGuiApplication, QIcon
+    from PySide6.QtQml import QQmlApplicationEngine
+    from PySide6.QtWidgets import QApplication, QMessageBox
+except ImportError as err:
+    print(f"[ERROR] Missing required dependency: {err}", file=sys.stderr)
+    sys.exit(1)
 
 from splash import SplashScreen
 
@@ -65,28 +70,12 @@ def _select_bundled_theme_name(
     return "breeze-fallback"
 
 
-def _configure_win_icon_themes(bundled_icons: Path) -> None:
-    if not bundled_icons.exists():
-        QIcon.setThemeName("breeze")
-        QIcon.setFallbackThemeName("breeze")
-        return
+def configure_icon_themes(contents_dir: Path) -> None:
+    """Sets up host and bundled fallback icon search paths."""
+    bundled_icons = contents_dir / "icons"
+    if not bundled_icons.exists() and IS_FROZEN:
+        bundled_icons = Path(sys._MEIPASS) / "icons"
 
-    QIcon.setThemeSearchPaths([str(bundled_icons)])
-    theme_name = _select_bundled_theme_name(bundled_icons)
-    QIcon.setThemeName(theme_name)
-    QIcon.setFallbackThemeName(theme_name)
-
-    def _on_color_scheme_changed(scheme: Qt.ColorScheme) -> None:
-        new_theme = _select_bundled_theme_name(bundled_icons, scheme)
-        QIcon.setThemeName(new_theme)
-        QIcon.setFallbackThemeName(new_theme)
-
-    QGuiApplication.styleHints().colorSchemeChanged.connect(
-        _on_color_scheme_changed
-    )
-
-
-def _configure_unix_icon_themes(bundled_icons: Path) -> None:
     if sys.platform.startswith("linux"):
         host_icon_dirs = [
             str(Path.home() / ".local/share/icons"),
@@ -96,39 +85,32 @@ def _configure_unix_icon_themes(bundled_icons: Path) -> None:
         QIcon.setThemeSearchPaths(host_icon_dirs + QIcon.themeSearchPaths())
 
     if not bundled_icons.exists():
+        if sys.platform == "win32":
+            QIcon.setThemeName("breeze")
         QIcon.setFallbackThemeName("breeze")
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
         return
 
-    QIcon.setThemeSearchPaths(QIcon.themeSearchPaths() + [str(bundled_icons)])
-    theme_name = _select_bundled_theme_name(bundled_icons)
-    if not QIcon.themeName():
-        QIcon.setThemeName(theme_name)
-    QIcon.setFallbackThemeName(theme_name)
-    QIcon.setFallbackSearchPaths([str(bundled_icons / theme_name / "flat")])
-
-    def _on_color_scheme_changed(scheme: Qt.ColorScheme) -> None:
-        new_theme = _select_bundled_theme_name(bundled_icons, scheme)
-        if QIcon.themeName() in ("", "breeze-fallback", "breeze-fallback-light"):
-            QIcon.setThemeName(new_theme)
-        QIcon.setFallbackThemeName(new_theme)
-        QIcon.setFallbackSearchPaths([str(bundled_icons / new_theme / "flat")])
-
-    QGuiApplication.styleHints().colorSchemeChanged.connect(
-        _on_color_scheme_changed
+    search_paths = (
+        [str(bundled_icons)]
+        if sys.platform == "win32"
+        else QIcon.themeSearchPaths() + [str(bundled_icons)]
     )
+    QIcon.setThemeSearchPaths(search_paths)
 
+    def _apply_theme(scheme: Qt.ColorScheme | None = None) -> None:
+        theme_name = _select_bundled_theme_name(bundled_icons, scheme)
+        if sys.platform == "win32" or QIcon.themeName() in (
+            "",
+            "breeze-fallback",
+            "breeze-fallback-light",
+        ):
+            QIcon.setThemeName(theme_name)
+        QIcon.setFallbackThemeName(theme_name)
+        QIcon.setFallbackSearchPaths([str(bundled_icons / theme_name / "flat")])
 
-def configure_icon_themes(contents_dir: Path) -> None:
-    """Sets up host and bundled fallback icon search paths."""
-    bundled_icons = contents_dir / "icons"
-    if not bundled_icons.exists() and IS_FROZEN:
-        bundled_icons = Path(sys._MEIPASS) / "icons"
-
-    if sys.platform == "win32":
-        _configure_win_icon_themes(bundled_icons)
-    else:
-        _configure_unix_icon_themes(bundled_icons)
-
+    _apply_theme()
+    QGuiApplication.styleHints().colorSchemeChanged.connect(_apply_theme)
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
 
@@ -176,9 +158,7 @@ def resolve_qml_entry(contents_dir: Path) -> Path:
     return qml_file
 
 
-def handle_startup_error(
-    engine: QQmlApplicationEngine, qml_errors: list[str]
-) -> None:
+def handle_startup_error(qml_errors: list[str]) -> None:
     """Logs diagnostic details, shows a critical alert, and exits."""
     detailed_err = (
         "\n".join(qml_errors) if qml_errors else "Unknown QML loading error."
@@ -187,27 +167,6 @@ def handle_startup_error(
         f"[ERROR] Failed to load QML root objects.\n\nQML Diagnostics:\n{detailed_err}"
     )
     print(full_msg, file=sys.stderr)
-
-    try:
-        if IS_PACKAGED:
-            default_state = Path.home() / ".local" / "state"
-            state_root = Path(os.environ.get("XDG_STATE_HOME", default_state))
-            state_dir = state_root / "fcs-client"
-            state_dir.mkdir(parents=True, exist_ok=True)
-            log_path = state_dir / "FlowControl_startup.log"
-        else:
-            log_path = Path("FlowControl_startup.log")
-        import_paths = "\n".join(engine.importPathList())
-        log_path.write_text(
-            f"{full_msg}\n\nImport Paths:\n{import_paths}",
-            encoding="utf-8",
-        )
-    except Exception:
-        try:
-            fallback_log = Path(tempfile.gettempdir()) / "FlowControl_startup.log"
-            fallback_log.write_text(full_msg, encoding="utf-8")
-        except Exception:
-            pass
 
     msg_box = QMessageBox()
     msg_box.setIcon(QMessageBox.Icon.Critical)
@@ -284,7 +243,7 @@ def main() -> None:
 
     if not engine.rootObjects():
         splash.close()
-        handle_startup_error(engine, qml_errors)
+        handle_startup_error(qml_errors)
 
     main_window = engine.rootObjects()[0]
     splash.finish(main_window)

@@ -39,12 +39,12 @@ Kirigami.Dialog {
 
         if (root.hasBackend) {
             if (defaultUrlField.text.trim().length > 0)
-                backend.set_server_url(defaultUrlField.text.trim());
+                backend.server_url = defaultUrlField.text.trim();
 
-            backend.set_auto_reconnect(autoConnectCheck.checked);
-            backend.set_reconnect_interval_ms(reconnectSpin.value);
+            backend.auto_reconnect = autoConnectCheck.checked;
+            backend.reconnect_interval_ms = reconnectSpin.value;
             if (refreshHzCombo.currentIndex >= 0 && refreshHzCombo.currentIndex < root.refreshHzValues.length)
-                backend.set_view_refresh_hz(root.refreshHzValues[refreshHzCombo.currentIndex]);
+                backend.view_refresh_hz = root.refreshHzValues[refreshHzCombo.currentIndex];
 
             backend.set_camera_manual_target(camManualTargetField.text);
             backend.set_camera_credentials(camUserField.text.trim(), camPassField.text);

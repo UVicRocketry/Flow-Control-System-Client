@@ -31,57 +31,6 @@ Kirigami.Dialog {
 
     signal settingsApplied(int index, var updatedConfig)
 
-    function normalizeUnitLabel(unitStr) {
-        var raw = String(unitStr || "").trim();
-        var lower = raw.toLowerCase();
-        var map = {
-            "kpa": "kPa",
-            "psi": "psi",
-            "psig": "psi",
-            "psia": "psi",
-            "kg": "kg",
-            "kilogram": "kg",
-            "kilograms": "kg",
-            "lb": "lbs",
-            "lbs": "lbs",
-            "pound": "lbs",
-            "pounds": "lbs",
-            "n": "N",
-            "newton": "N",
-            "newtons": "N",
-            "lbf": "lbf",
-            "c": "°C",
-            "°c": "°C",
-            "degc": "°C",
-            "f": "°F",
-            "°f": "°F",
-            "degf": "°F",
-            "k": "K",
-            "kelvin": "K"
-        };
-        return map[lower] || raw;
-    }
-
-    function allowedUnitsForChannel(chKey) {
-        for (let i = 0; i < root.availableChannels.length; ++i) {
-            let ch = root.availableChannels[i];
-            if (ch.key === chKey && ch.allowed_units && ch.allowed_units.length > 0)
-                return ch.allowed_units;
-
-        }
-        var upper = String(chKey || "").trim().toUpperCase();
-        if (upper.indexOf("M_") === 0 || upper === "L_RUN_TANK" || upper.indexOf("MASS") >= 0)
-            return ["kg", "lbs"];
-
-        if (upper.indexOf("T_") === 0)
-            return ["°C", "°F", "K"];
-
-        if (upper.indexOf("L_") === 0)
-            return ["N", "lbf"];
-
-        return ["kPa", "psi"];
-    }
-
     function selectSwatchColor(key) {
         root.editColor = key;
         colorHexField.text = key;
@@ -92,10 +41,11 @@ Kirigami.Dialog {
         root.availableChannels = channels || [];
         root.editTitle = cardData.title || "";
         root.editChannelKey = cardData.channelKey || "P_RUN_TANK";
-        root.editAllowedUnits = root.allowedUnitsForChannel(root.editChannelKey);
-        var desiredUnit = root.normalizeUnitLabel(cardData.yAxisLabel);
+        var meta = (typeof backend !== "undefined" && backend) ? backend.get_channel_meta(root.editChannelKey) : null;
+        root.editAllowedUnits = (meta && meta.allowed_units && meta.allowed_units.length > 0) ? meta.allowed_units : ["kPa", "psi"];
+        var desiredUnit = String(cardData.yAxisLabel || (meta && meta.unit) || root.editAllowedUnits[0]);
         if (root.editAllowedUnits.indexOf(desiredUnit) < 0)
-            desiredUnit = root.editAllowedUnits[0];
+            desiredUnit = (meta && meta.unit) || root.editAllowedUnits[0];
 
         root.editYAxisLabel = desiredUnit;
         root.editColor = String(cardData.accentColor || "theme:highlight");
@@ -207,11 +157,11 @@ Kirigami.Dialog {
                         if (ch.title)
                             titleField.text = ch.title;
 
-                        let nextAllowed = root.allowedUnitsForChannel(ch.key);
+                        let meta = (typeof backend !== "undefined" && backend) ? backend.get_channel_meta(ch.key) : null;
+                        let nextAllowed = (ch.allowed_units && ch.allowed_units.length > 0) ? ch.allowed_units : ((meta && meta.allowed_units) || ["kPa", "psi"]);
                         root.editAllowedUnits = nextAllowed;
-                        let currentUnit = root.normalizeUnitLabel(root.editYAxisLabel);
-                        if (nextAllowed.indexOf(currentUnit) < 0) {
-                            let chUnit = root.normalizeUnitLabel(ch.unit);
+                        if (nextAllowed.indexOf(root.editYAxisLabel) < 0) {
+                            let chUnit = ch.unit || (meta && meta.unit) || nextAllowed[0];
                             root.editYAxisLabel = nextAllowed.indexOf(chUnit) >= 0 ? chUnit : nextAllowed[0];
                         }
                         if (ch.color)

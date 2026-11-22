@@ -13,16 +13,12 @@ if CODE_DIR not in sys.path:
     sys.path.insert(0, CODE_DIR)
 
 import config_manager  # noqa: E402
-from telemetry_files import (  # noqa: E402
-    parse_telemetry_file,
-    parse_telemetry_file_with_units,
-)
+from telemetry_files import parse_telemetry_file_with_units  # noqa: E402
 from telemetry_series import (  # noqa: E402
+    ColumnarTelemetryBuffer,
     allowed_units_for_channel,
     format_channel_meta,
     ingest_ws_telemetry_frames,
-    query_batch_channels,
-    query_channel_series,
     register_channel_if_missing,
 )
 
@@ -158,10 +154,10 @@ class TestTelemetrySeries(unittest.TestCase):
             },
         ]
         seconds_list = [0.0, 1.0]
+        buf = ColumnarTelemetryBuffer(max_samples=0)
+        buf.load_records(records, seconds_list)
 
-        p_res = query_channel_series(
-            records,
-            seconds_list,
+        p_res = buf.query_series(
             "P_RUN_TANK",
             0.0,
             1.0,
@@ -170,9 +166,7 @@ class TestTelemetrySeries(unittest.TestCase):
         )
         self.assertAlmostEqual(p_res["mean"], 689.47572932, places=4)
 
-        m_res = query_channel_series(
-            records,
-            seconds_list,
+        m_res = buf.query_series(
             "M_RUN_TANK",
             0.0,
             1.0,
@@ -181,9 +175,7 @@ class TestTelemetrySeries(unittest.TestCase):
         )
         self.assertAlmostEqual(m_res["mean"], 22.0462262, places=4)
 
-        batch = query_batch_channels(
-            records,
-            seconds_list,
+        batch = buf.query_batch(
             [
                 {
                     "index": 0,
@@ -232,8 +224,7 @@ class TestTelemetryFiles(unittest.TestCase):
             csv_path = Path(tmpdir) / "hotfire.csv"
             csv_path.write_text(csv_content, encoding="utf-8")
 
-            records, raw_seconds, cols = parse_telemetry_file(csv_path)
-            _, _, _, csv_units = parse_telemetry_file_with_units(csv_path)
+            records, raw_seconds, cols, csv_units = parse_telemetry_file_with_units(csv_path)
 
         self.assertEqual(cols, ["P_RUN_TANK", "L_RUN_TANK", "L_THRUST", "T_RUN_TANK"])
         self.assertEqual(raw_seconds, [0.0, 2.5])

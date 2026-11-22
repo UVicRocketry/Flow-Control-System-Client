@@ -54,7 +54,6 @@ class LogManager(QtCore.QObject):
         super().__init__(parent)
         self._local_data: list[str] = []
         self._remote_data: list[str] = []
-        self._pending_deletions: set[tuple[str, str]] = set()
         self._net_mgr: QtNetwork.QNetworkAccessManager | None = None
         self._active_replies: set[QtNetwork.QNetworkReply] = set()
 
@@ -103,12 +102,6 @@ class LogManager(QtCore.QObject):
         self.local_data_changed.emit()
         return self._local_data
 
-    def mark_data_for_deletion(self, mode: str, filename: str) -> None:
-        self._pending_deletions.add((mode, filename))
-
-    def unmark_data_for_deletion(self, mode: str, filename: str) -> None:
-        self._pending_deletions.discard((mode, filename))
-
     def handle_remote_data_list_msg(self, msg: dict) -> None:
         raw_files = msg.get("files", [])
         parsed_names: list[str] = []
@@ -138,20 +131,8 @@ class LogManager(QtCore.QObject):
         except Exception as err:
             self.log_error(f'Failed to save remote file "{fname}": {err}')
 
-    def handle_remote_data_content_msg(self, msg: dict, on_saved_cb=None) -> None:
-        fname = Path(str(msg.get("filename", ""))).name
-        content = msg.get("content", "")
-        req_mode = str(msg.get("mode", "download")).lower()
-        if not fname and req_mode == "pull_recording":
-            fname = f"telemetry_pull_{time.strftime('%Y_%m_%d_%H%M%S')}.csv"
-        if not fname:
-            return
-        self._save_remote_bytes(
-            fname, str(content).encode("utf-8"), req_mode, on_saved_cb
-        )
-
     # ------------------------------------------------------------------
-    # HTTP /api/data Operations via QNetworkAccessManager (with WS fallback)
+    # HTTP /api/data Operations via QNetworkAccessManager
     # ------------------------------------------------------------------
     def _track_reply(self, reply: QtNetwork.QNetworkReply, callback) -> None:
         self._active_replies.add(reply)
@@ -175,9 +156,7 @@ class LogManager(QtCore.QObject):
             )
         return req
 
-    def refresh_remote_data(
-        self, server_url: str, ws_connected: bool = False, ws_send_fn=None
-    ) -> None:
+    def refresh_remote_data(self, server_url: str) -> None:
         """Fetches remote data file list via GET /api/data."""
         req = self._make_request(build_api_data_url(server_url))
         reply = self._network_manager().get(req)
@@ -191,10 +170,6 @@ class LogManager(QtCore.QObject):
                         return
                 except Exception as err:
                     self.log_warn(f"Failed parsing /api/data list: {err}")
-            elif ws_connected and ws_send_fn is not None:
-                ws_send_fn(
-                    json.dumps({"type": "remote_data_req", "operation": "list"})
-                )
 
         self._track_reply(reply, _on_done)
 
@@ -204,26 +179,11 @@ class LogManager(QtCore.QObject):
         filename: str,
         mode: str = "download",
         on_saved_cb=None,
-        ws_connected: bool = False,
-        ws_send_fn=None,
     ) -> None:
         """Downloads a remote log via GET /api/data/{filename}."""
         clean_name = Path(filename.strip()).name if filename else ""
-        if not clean_name and mode != "pull_recording":
+        if not clean_name:
             self.log_warn("No remote file selected to download.")
-            return
-        if not clean_name and mode == "pull_recording":
-            if ws_connected and ws_send_fn is not None:
-                ws_send_fn(
-                    json.dumps(
-                        {
-                            "type": "remote_data_req",
-                            "operation": "get",
-                            "filename": "",
-                            "mode": mode,
-                        }
-                    )
-                )
             return
 
         req = self._make_request(build_api_data_url(server_url, clean_name))
@@ -234,21 +194,7 @@ class LogManager(QtCore.QObject):
                 raw_bytes = bytes(r.readAll().data())
                 self._save_remote_bytes(clean_name, raw_bytes, mode, on_saved_cb)
                 return
-            if ws_connected and ws_send_fn is not None:
-                ws_send_fn(
-                    json.dumps(
-                        {
-                            "type": "remote_data_req",
-                            "operation": "get",
-                            "filename": clean_name,
-                            "mode": mode,
-                        }
-                    )
-                )
-            else:
-                self.log_error(
-                    f'Failed downloading "{clean_name}": {r.errorString()}'
-                )
+            self.log_error(f'Failed downloading "{clean_name}": {r.errorString()}')
 
         self._track_reply(reply, _on_done)
 
@@ -257,8 +203,6 @@ class LogManager(QtCore.QObject):
         server_url: str,
         target: str,
         known_channels: dict,
-        ws_connected: bool = False,
-        ws_send_fn=None,
     ) -> None:
         """Uploads a local/external CSV or JSONL log via PUT /api/data/{filename}."""
         clean_target = target.strip()
@@ -293,23 +237,11 @@ class LogManager(QtCore.QObject):
         def _on_done(r: QtNetwork.QNetworkReply) -> None:
             if r.error() == QtNetwork.QNetworkReply.NetworkError.NoError:
                 self.log_info(f'Uploaded "{resolved_path.name}" to valve cart.')
-                self.refresh_remote_data(server_url, ws_connected, ws_send_fn)
+                self.refresh_remote_data(server_url)
                 return
-            if ws_connected and ws_send_fn is not None:
-                ws_send_fn(
-                    json.dumps(
-                        {
-                            "type": "remote_data_req",
-                            "operation": "put",
-                            "filename": resolved_path.name,
-                            "content": raw_bytes.decode("utf-8", errors="replace"),
-                        }
-                    )
-                )
-            else:
-                self.log_error(
-                    f'Failed uploading "{resolved_path.name}": {r.errorString()}'
-                )
+            self.log_error(
+                f'Failed uploading "{resolved_path.name}": {r.errorString()}'
+            )
 
         self._track_reply(reply, _on_done)
 
@@ -318,8 +250,6 @@ class LogManager(QtCore.QObject):
         server_url: str,
         old_name: str,
         new_clean: str,
-        ws_connected: bool,
-        ws_send_fn,
     ) -> bool:
         if Path(new_clean).suffix == "" and Path(old_name).suffix:
             new_clean = new_clean + Path(old_name).suffix
@@ -330,21 +260,9 @@ class LogManager(QtCore.QObject):
 
         def _on_done(r: QtNetwork.QNetworkReply) -> None:
             if r.error() == QtNetwork.QNetworkReply.NetworkError.NoError:
-                self.refresh_remote_data(server_url, ws_connected, ws_send_fn)
+                self.refresh_remote_data(server_url)
                 return
-            if ws_connected and ws_send_fn is not None:
-                ws_send_fn(
-                    json.dumps(
-                        {
-                            "type": "remote_data_req",
-                            "operation": "rename",
-                            "old_name": old_name,
-                            "new_name": new_clean,
-                        }
-                    )
-                )
-            else:
-                self.log_error(f'Failed renaming "{old_name}": {r.errorString()}')
+            self.log_error(f'Failed renaming "{old_name}": {r.errorString()}')
 
         self._track_reply(reply, _on_done)
         self._remote_data = [
@@ -361,8 +279,6 @@ class LogManager(QtCore.QObject):
         new_name: str,
         config_store,
         server_url: str,
-        ws_connected: bool = False,
-        ws_send_fn=None,
     ) -> bool:
         """Renames a local, external, or remote telemetry file."""
         new_clean = Path(new_name.strip()).name
@@ -371,9 +287,7 @@ class LogManager(QtCore.QObject):
             return False
 
         if mode == "remote":
-            return self._rename_remote_data(
-                server_url, old_name, new_clean, ws_connected, ws_send_fn
-            )
+            return self._rename_remote_data(server_url, old_name, new_clean)
 
         try:
             dst = rename_data_file(mode, old_name, new_clean)
@@ -391,28 +305,15 @@ class LogManager(QtCore.QObject):
             self.log_error(f'Failed to rename "{old_name}": {err}')
             return False
 
-    def _delete_remote_data(
-        self, server_url: str, filename: str, ws_connected: bool, ws_send_fn
-    ) -> bool:
+    def _delete_remote_data(self, server_url: str, filename: str) -> bool:
         req = self._make_request(build_api_data_url(server_url, filename))
         reply = self._network_manager().deleteResource(req)
 
         def _on_done(r: QtNetwork.QNetworkReply) -> None:
             if r.error() == QtNetwork.QNetworkReply.NetworkError.NoError:
-                self.refresh_remote_data(server_url, ws_connected, ws_send_fn)
+                self.refresh_remote_data(server_url)
                 return
-            if ws_connected and ws_send_fn is not None:
-                ws_send_fn(
-                    json.dumps(
-                        {
-                            "type": "remote_data_req",
-                            "operation": "delete",
-                            "filename": filename,
-                        }
-                    )
-                )
-            else:
-                self.log_error(f'Failed deleting "{filename}": {r.errorString()}')
+            self.log_error(f'Failed deleting "{filename}": {r.errorString()}')
 
         self._track_reply(reply, _on_done)
         if filename in self._remote_data:
@@ -435,15 +336,10 @@ class LogManager(QtCore.QObject):
         filename: str,
         config_store,
         server_url: str,
-        ws_connected: bool = False,
-        ws_send_fn=None,
     ) -> bool:
         """Deletes a local, external, or remote telemetry file."""
-        self._pending_deletions.discard((mode, filename))
         if mode == "remote":
-            return self._delete_remote_data(
-                server_url, filename, ws_connected, ws_send_fn
-            )
+            return self._delete_remote_data(server_url, filename)
 
         try:
             deleted = delete_data_file(mode, filename)

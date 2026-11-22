@@ -59,7 +59,6 @@ Kirigami.Card {
     property int bucketCount: 0
     property real plotTMin: 0
     property real plotTMax: 30
-    property bool _ready: false
     property bool _staleWhileOffscreen: true
 
     signal editRequested(int index)
@@ -85,23 +84,6 @@ Kirigami.Card {
         plotCanvas.requestPaint();
     }
 
-    function refreshFromBackend() {
-        if (!root.visible) {
-            root._staleWhileOffscreen = true;
-            return ;
-        }
-        if (typeof backend === "undefined" || backend === null || typeof backend.get_channel_data !== "function" || root.channelKey === "") {
-            plotCanvas.requestPaint();
-            return ;
-        }
-        root._staleWhileOffscreen = false;
-        // pass negative windowSeconds when using preset trailing windows so backend slices most recent samples
-        var tStartArg = root.useCustomRange ? root.customRangeStart : -root.windowSeconds;
-        var tEndArg = root.useCustomRange ? root.customRangeEnd : -1;
-        var res = backend.get_channel_data(root.dataSourceMode, root.channelKey, tStartArg, tEndArg, root.maxBuckets, root.filterOutliers3Std, root.smoothingWindow, root.yAxisLabel);
-        root.applyChannelData(res);
-    }
-
     implicitWidth: fixedCardWidth
     width: fixedCardWidth
     Layout.fillWidth: false
@@ -111,34 +93,6 @@ Kirigami.Card {
     Layout.maximumWidth: fixedCardWidth
     Layout.minimumHeight: 210
     Layout.preferredHeight: Math.max(210, root.cardHeight)
-    Component.onCompleted: {
-        root._ready = true;
-    }
-    onChannelKeyChanged: {
-        if (root._ready)
-            refreshFromBackend();
-
-    }
-    onYAxisLabelChanged: {
-        if (root._ready)
-            refreshFromBackend();
-
-    }
-    onFilterOutliers3StdChanged: {
-        if (root._ready)
-            refreshFromBackend();
-
-    }
-    onSmoothingWindowChanged: {
-        if (root._ready)
-            refreshFromBackend();
-
-    }
-    onMaxBucketsChanged: {
-        if (root._ready)
-            refreshFromBackend();
-
-    }
     onAutoScaleChanged: plotCanvas.requestPaint()
     onManualMinYChanged: plotCanvas.requestPaint()
     onManualMaxYChanged: plotCanvas.requestPaint()

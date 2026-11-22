@@ -1,15 +1,15 @@
 {
     "server": {
-        "default_url": "ws://127.0.0.1:8080/ws",
+        "default_url": "ws://192.168.0.1:8080/ws",
         "auto_reconnect": false,
-        "reconnect_interval_ms": 2000
+        "reconnect_interval_ms": 908
     },
     "camera": {
         "mode": "auto",
         "profile": "udp_high",
-        "manual_target": "192.168.0.108",
+        "manual_target": "rtsp://192.168.1.108:554/cam/realmonitor?channel=1&subtype=0",
         "username": "admin",
-        "password": ""
+        "password": "admin"
     },
     "external_data": [],
     "ui": {
@@ -17,8 +17,9 @@
         "split_active": false,
         "left_page": "video",
         "right_page": "",
-        "last_right_page": "",
+        "last_right_page": "video",
         "focused_pane": "left",
-        "split_ratio": 0.5
+        "split_ratio": 0.7278,
+        "min_log_level": "INFO"
     }
 }
