@@ -7,9 +7,9 @@
     "camera": {
         "mode": "auto",
         "profile": "udp_high",
-        "manual_target": "rtsp://192.168.1.108:554/cam/realmonitor?channel=1&subtype=0",
+        "manual_target": "192.168.1.108",
         "username": "admin",
-        "password": "admin"
+        "password": "Rocketsrock"
     },
     "external_data": [],
     "ui": {
