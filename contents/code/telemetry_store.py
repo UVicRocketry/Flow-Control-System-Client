@@ -3,6 +3,7 @@
 
 import json
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PySide6 import QtCore
@@ -27,6 +28,18 @@ from telemetry_series import (
     register_channel_if_missing,
 )
 
+
+@dataclass(frozen=True, slots=True)
+class _ParsedTelemetryFile:
+    """Structured result of parsing a telemetry CSV or JSONL file."""
+
+    mode: str
+    target: str
+    resolved_path: str
+    records: list[dict]
+    seconds: list[float]
+    columns: list[str]
+    csv_units: dict[str, str] = field(default_factory=dict)
 
 class TelemetryStore(QtCore.QObject):
     """Owns live/loaded telemetry buffers, graph configs, and CSV recording."""
@@ -330,19 +343,10 @@ class TelemetryStore(QtCore.QObject):
             f"({len(records)} samples{suffix})."
         )
 
-    def _apply_parsed_telemetry(
-        self,
-        mode: str,
-        target: str,
-        resolved_str: str,
-        records: list,
-        seconds_list: list,
-        cols: list,
-        csv_units: dict | None = None,
-    ) -> dict:
-        self._loaded_channel_units = dict(csv_units or {})
+    def _apply_parsed_telemetry(self, parsed: _ParsedTelemetryFile) -> dict:
+        self._loaded_channel_units = dict(parsed.csv_units)
         new_ch = False
-        for c in cols:
+        for c in parsed.columns:
             if register_channel_if_missing(
                 self._known_channels, c, csv_unit=self._loaded_channel_units.get(c)
             ):
@@ -350,28 +354,28 @@ class TelemetryStore(QtCore.QObject):
         if new_ch or self._loaded_channel_units:
             self.channels_changed.emit()
 
-        self._loaded_buffer.load_records(records, seconds_list)
-        min_t = seconds_list[0] if seconds_list else 0.0
-        max_t = seconds_list[-1] if seconds_list else 0.0
+        self._loaded_buffer.load_records(parsed.records, parsed.seconds)
+        min_t = parsed.seconds[0] if parsed.seconds else 0.0
+        max_t = parsed.seconds[-1] if parsed.seconds else 0.0
 
         self._loaded_meta = {
-            "source": mode,
-            "path": target,
-            "resolvedPath": resolved_str,
-            "name": Path(target).name,
-            "columns": list(cols),
+            "source": parsed.mode,
+            "path": parsed.target,
+            "resolvedPath": parsed.resolved_path,
+            "name": Path(parsed.target).name,
+            "columns": list(parsed.columns),
             "units": dict(self._loaded_channel_units),
-            "count": len(records),
+            "count": len(parsed.records),
             "minTime": min_t,
             "maxTime": max_t,
             "duration": max(0.0, max_t - min_t),
         }
 
-        name = Path(target).name
+        name = Path(parsed.target).name
         self._log_manager.log_info(
-            f'Loaded data "{name}" ({mode}, {len(records)} samples)'
+            f'Loaded data "{name}" ({parsed.mode}, {len(parsed.records)} samples)'
         )
-        self.data_loaded.emit(mode, target, self._loaded_meta)
+        self.data_loaded.emit(parsed.mode, parsed.target, self._loaded_meta)
         self.telemetry_changed.emit()
         return self._loaded_meta
 
@@ -387,7 +391,15 @@ class TelemetryStore(QtCore.QObject):
             return {}
 
         return self._apply_parsed_telemetry(
-            mode, target, str(resolved_path), records, seconds_list, cols, csv_units
+            _ParsedTelemetryFile(
+                mode=mode,
+                target=target,
+                resolved_path=str(resolved_path),
+                records=records,
+                seconds=seconds_list,
+                columns=cols,
+                csv_units=csv_units,
+            )
         )
 
     def load_data(self, mode: str, target: str) -> dict:

@@ -249,6 +249,40 @@ class TestSplitControllersAndBackendFacade(unittest.TestCase):
                 )
                 self.assertAlmostEqual(res["mean"], 689.47572932, places=3)
 
+    def test_telemetry_store_parsed_dataclass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            csv_path = tmp_path / "sample.csv"
+            csv_path.write_text(
+                "kPa,s\nP_RUN_TANK,seconds\n100.0,0.0\n200.0,1.0\n",
+                encoding="utf-8",
+            )
+            with _temp_config_patch_stack(tmp_path):
+                logs = LogManager()
+                cfg = ConfigStore(logs)
+                cfg.load_config()
+                store = telemetry_store.TelemetryStore(cfg, logs)
+
+                meta = store.load_resolved_file("local", "sample.csv", csv_path)
+                self.assertEqual(meta["name"], "sample.csv")
+                self.assertEqual(meta["source"], "local")
+                self.assertEqual(meta["count"], 2)
+                self.assertEqual(store.loaded_meta, meta)
+                self.assertEqual(store.loaded_meta["units"], {"P_RUN_TANK": "kPa"})
+
+                parsed = telemetry_store._ParsedTelemetryFile(
+                    mode="external",
+                    target=str(csv_path),
+                    resolved_path=str(csv_path),
+                    records=[{"t": 0.0, "values": {"P_RUN_TANK": 100.0}}],
+                    seconds=[0.0],
+                    columns=["P_RUN_TANK"],
+                    csv_units={"P_RUN_TANK": "kPa"},
+                )
+                store._apply_parsed_telemetry(parsed)
+                self.assertEqual(store.loaded_meta["source"], "external")
+                self.assertEqual(store.loaded_meta["count"], 1)
+
 
 class TestConnectionFinderAndAutoManualModes(unittest.TestCase):
     """Tests connection_finder.autodiscover, WS auto/manual mode, and camera integration."""
