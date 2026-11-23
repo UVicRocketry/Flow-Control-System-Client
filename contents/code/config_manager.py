@@ -192,6 +192,7 @@ def read_app_config(log_error_fn=None) -> dict:
         if "server" not in config_data:
             config_data["server"] = {}
         config_data["server"]["default_url"] = env_url
+        config_data["server"]["mode"] = "manual"
 
     return config_data
 
@@ -259,4 +260,3 @@ def write_graphs_config(
                 f'Failed to save graphs configuration to "{GRAPHS_CONFIG_FILE}": {err}'
             )
         return False
-

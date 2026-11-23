@@ -25,12 +25,15 @@ if CODE_DIR not in sys.path:
 from PySide6 import QtCore  # noqa: E402
 
 import backend as backend_mod  # noqa: E402
+import camera_controller  # noqa: E402
 import config_manager  # noqa: E402
 import config_store  # noqa: E402
+import connection_finder  # noqa: E402
 import log_manager  # noqa: E402
 import telemetry_files  # noqa: E402
 import telemetry_store  # noqa: E402
 from actuator_controller import ActuatorController  # noqa: E402
+from camera_controller import CameraController  # noqa: E402
 from config_store import ConfigStore  # noqa: E402
 from log_manager import LogManager, build_api_data_url, ws_url_to_http_base  # noqa: E402
 from telemetry_series import (  # noqa: E402
@@ -245,6 +248,187 @@ class TestSplitControllersAndBackendFacade(unittest.TestCase):
                     "live", "P_CUSTOM", 0.0, 2.0, 50, False, 1, "kPa"
                 )
                 self.assertAlmostEqual(res["mean"], 689.47572932, places=3)
+
+
+class TestConnectionFinderAndAutoManualModes(unittest.TestCase):
+    """Tests connection_finder.autodiscover, WS auto/manual mode, and camera integration."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+
+    def test_autodiscover_ws_and_rtsp_subnet_localhost_and_fallback(self) -> None:
+        with (
+            mock.patch.object(
+                connection_finder,
+                "_collect_network_state",
+                return_value=(["192.168.0.", "192.168.1."], {"192.168.0.10"}, True),
+            ),
+            mock.patch.object(
+                connection_finder, "_read_arp_neighbors", return_value=[]
+            ),
+        ):
+            # 1. Discovered on 192.168.0/1.* fast pass
+            with mock.patch.object(
+                connection_finder,
+                "_probe_hosts",
+                side_effect=lambda cands, port, timeout=0.15, deadline=None: (
+                    "192.168.1.1" if port == 8080 and "192.168.1.1" in cands else None
+                ),
+            ):
+                self.assertEqual(
+                    connection_finder.autodiscover("ws"), "ws://192.168.1.1:8080/ws"
+                )
+
+            # 2. Subnet sweep finds camera on 192.168.0.55 after fast pass misses
+            def _sweep_rtsp(cands, port, timeout=0.15, deadline=None):
+                if port == 554 and "192.168.0.55" in cands and len(cands) > 10:
+                    return "192.168.0.55"
+                return None
+
+            with mock.patch.object(
+                connection_finder, "_probe_hosts", side_effect=_sweep_rtsp
+            ):
+                self.assertEqual(connection_finder.autodiscover("rtsp"), "192.168.0.55")
+
+            # 3. Localhost fallback when 192.168.0/1.* has no open port
+            def _localhost_ws(cands, port, timeout=0.15, deadline=None):
+                return "127.0.0.1" if port == 8080 and cands == ["127.0.0.1"] else None
+
+            with mock.patch.object(
+                connection_finder, "_probe_hosts", side_effect=_localhost_ws
+            ):
+                self.assertEqual(
+                    connection_finder.autodiscover("ws"), "ws://127.0.0.1:8080/ws"
+                )
+
+            def _localhost_rtsp_alt(cands, port, timeout=0.15, deadline=None):
+                return "127.0.0.1" if port == 8554 and cands == ["127.0.0.1"] else None
+
+            with mock.patch.object(
+                connection_finder, "_probe_hosts", side_effect=_localhost_rtsp_alt
+            ):
+                self.assertEqual(
+                    connection_finder.autodiscover("rtsp"), "127.0.0.1:8554"
+                )
+
+            # 4. Offline fallback when neither subnet nor localhost responds
+            with mock.patch.object(
+                connection_finder, "_probe_hosts", return_value=None
+            ):
+                self.assertEqual(
+                    connection_finder.autodiscover("ws"), "ws://192.168.0.1:8080/ws"
+                )
+                self.assertEqual(
+                    connection_finder.autodiscover("rtsp"), "192.168.0.108"
+                )
+
+            # 5. Zero timeout budget aborts scan immediately and returns fallback
+            with mock.patch.object(
+                connection_finder, "_open_nonblocking_socket"
+            ) as mock_open:
+                self.assertEqual(
+                    connection_finder.autodiscover("ws", timeout=0.0),
+                    "ws://192.168.0.1:8080/ws",
+                )
+                mock_open.assert_not_called()
+
+        with (
+            mock.patch.object(
+                connection_finder,
+                "_collect_network_state",
+                return_value=(["192.168.1."], {"192.168.1.10"}, True),
+            ),
+            mock.patch.object(
+                connection_finder, "_read_arp_neighbors", return_value=[]
+            ),
+            mock.patch.object(connection_finder, "_probe_hosts", return_value=None),
+        ):
+            self.assertEqual(
+                connection_finder.autodiscover("ws"), "ws://192.168.1.1:8080/ws"
+            )
+            self.assertEqual(connection_finder.autodiscover("rtsp"), "192.168.1.108")
+
+        with self.assertRaises(ValueError):
+            connection_finder.autodiscover("http")
+
+        with mock.patch.object(
+            connection_finder, "_probe_hosts", return_value="127.0.0.1"
+        ) as mock_probe:
+            self.assertTrue(connection_finder.is_ws_reachable("ws://127.0.0.1:8080/ws"))
+            mock_probe.assert_called_with(["127.0.0.1"], port=8080, timeout=0.15)
+        self.assertFalse(connection_finder.is_ws_reachable("not-a-url"))
+
+    def test_ws_auto_manual_mode_and_camera_controller_integration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                _temp_config_patch_stack(Path(tmpdir)),
+                mock.patch.object(
+                    config_store,
+                    "autodiscover",
+                    return_value="ws://127.0.0.1:8080/ws",
+                ) as mock_ws_discover,
+                mock.patch.object(
+                    camera_controller,
+                    "autodiscover",
+                    return_value="127.0.0.1:8554",
+                ) as mock_rtsp_discover,
+                mock.patch.object(
+                    camera_controller,
+                    "has_active_ethernet",
+                    return_value=False,
+                ),
+            ):
+                be = backend_mod.Backend()
+                self.assertEqual(be.server_mode, "auto")
+                self.assertEqual(be.server_manual_url, "ws://192.168.0.1:8080/ws")
+                self.assertEqual(be.server_url, "ws://127.0.0.1:8080/ws")
+                self.assertGreaterEqual(mock_ws_discover.call_count, 1)
+
+                mode_events: list[str] = []
+                url_events: list[str] = []
+                be.server_mode_changed.connect(mode_events.append)
+                be.server_url_changed.connect(url_events.append)
+
+                # Updating manual URL while in auto mode keeps auto mode active
+                be.set_server_manual_url("ws://10.0.0.25:8080/ws")
+                self.assertEqual(be.server_mode, "auto")
+                self.assertEqual(be.server_manual_url, "ws://10.0.0.25:8080/ws")
+                self.assertEqual(be.server_url, "ws://127.0.0.1:8080/ws")
+
+                # Switching to manual mode uses and persists manual URL
+                be.set_server_mode("manual")
+                self.assertEqual(be.server_mode, "manual")
+                self.assertEqual(be.server_url, "ws://10.0.0.25:8080/ws")
+                self.assertEqual(mode_events[-1], "manual")
+                self.assertEqual(url_events[-1], "ws://10.0.0.25:8080/ws")
+
+                # Reloading verifies persisted mode and manual URL
+                reloaded = ConfigStore(LogManager())
+                reloaded.load_config()
+                self.assertEqual(reloaded.server_mode, "manual")
+                self.assertEqual(reloaded.server_manual_url, "ws://10.0.0.25:8080/ws")
+                self.assertEqual(reloaded.server_url, "ws://10.0.0.25:8080/ws")
+
+                # Switching back to auto mode preserves saved manual URL
+                be.set_server_mode("auto")
+                self.assertEqual(be.server_mode, "auto")
+                self.assertEqual(be.server_manual_url, "ws://10.0.0.25:8080/ws")
+                self.assertEqual(be.server_url, "ws://127.0.0.1:8080/ws")
+
+                # CameraController delegates discovery and link detection to connection_finder
+                be.set_camera_settings("auto", "udp_high", "192.168.1.108")
+                with mock.patch.object(be.camera_controller, "_enforce_camera_h264"):
+                    rtsp_url = be.camera_rtsp_url
+                mock_rtsp_discover.assert_called_with("rtsp")
+                self.assertTrue(
+                    rtsp_url.endswith(
+                        "@127.0.0.1:8554/cam/realmonitor?channel=1&subtype=0"
+                    )
+                )
+                self.assertEqual(
+                    CameraController._detect_camera_link(), ("127.0.0.1:8554", False)
+                )
 
 
 if __name__ == "__main__":

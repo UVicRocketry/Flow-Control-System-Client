@@ -1,12 +1,8 @@
 # This Python file uses the following encoding: utf-8
 """IP camera RTSP configuration, link detection, and FFmpeg tuning (`camera_controller.py`)."""
 
-import errno
 import os
-import selectors
-import socket
 import threading
-import time
 from urllib.parse import quote
 from urllib.request import (
     HTTPDigestAuthHandler,
@@ -16,88 +12,8 @@ from urllib.request import (
 )
 
 from PySide6 import QtCore, QtMultimedia
-from PySide6.QtNetwork import QNetworkInterface
 
-_PRIORITY_CAMERA_IPS = (
-    "192.168.0.103",
-    "192.168.1.108",
-    "192.168.0.108",
-    "192.168.1.103",
-)
-_INFRASTRUCTURE_IPS = frozenset(
-    {
-        "192.168.0.1",
-        "192.168.0.253",
-        "192.168.0.254",
-        "192.168.1.1",
-        "192.168.1.253",
-        "192.168.1.254",
-    }
-)
-
-
-def _probe_rtsp_hosts(
-    candidates: list[str], port: int = 554, timeout: float = 0.15
-) -> str | None:
-    """Probes candidate IPv4 hosts in batches and returns the first with open TCP port."""
-    for i in range(0, len(candidates), 64):
-        batch = candidates[i : i + 64]
-        sel = selectors.DefaultSelector()
-        sockets: list[socket.socket] = []
-        try:
-            for ip in batch:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.setblocking(False)
-                err = sock.connect_ex((ip, port))
-                if err == 0:
-                    sock.close()
-                    return ip
-                if err in (errno.EINPROGRESS, errno.EALREADY, errno.EWOULDBLOCK):
-                    sel.register(sock, selectors.EVENT_WRITE, ip)
-                    sockets.append(sock)
-                else:
-                    sock.close()
-
-            deadline = time.monotonic() + timeout
-            while sockets and sel.get_map():
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                for key, _ in sel.select(timeout=remaining):
-                    sock = key.fileobj
-                    ip = key.data
-                    sel.unregister(sock)
-                    if sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR) == 0:
-                        return ip
-        finally:
-            sel.close()
-            for sock in sockets:
-                try:
-                    sock.close()
-                except OSError:
-                    pass
-    return None
-
-
-def _read_arp_neighbors(prefixes: list[str], excluded: set[str]) -> list[str]:
-    """Returns ARP neighbor IPv4s matching active subnet prefixes."""
-    neighbors: list[str] = []
-    try:
-        with open("/proc/net/arp", encoding="utf-8") as f:
-            lines = f.read().splitlines()[1:]
-    except OSError:
-        return neighbors
-
-    for line in lines:
-        parts = line.split()
-        if len(parts) < 4:
-            continue
-        ip, flags = parts[0], parts[2]
-        if flags == "0x0" or ip in excluded:
-            continue
-        if any(ip.startswith(pfx) for pfx in prefixes):
-            neighbors.append(ip)
-    return neighbors
+from connection_finder import autodiscover, has_active_ethernet
 
 
 class CameraController(QtCore.QObject):
@@ -124,89 +40,8 @@ class CameraController(QtCore.QObject):
 
     @staticmethod
     def _detect_camera_link() -> tuple[str, bool]:
-        """Auto-discovers an RTSP camera on active subnets and checks Ethernet link."""
-        Flag = QNetworkInterface.InterfaceFlag
-        IType = QNetworkInterface.InterfaceType
-
-        is_eth = False
-        local_ips: set[str] = set()
-        eth_prefixes: list[str] = []
-        other_prefixes: list[str] = []
-
-        for iface in QNetworkInterface.allInterfaces():
-            flags = iface.flags()
-            if (
-                not (flags & Flag.IsUp)
-                or not (flags & Flag.IsRunning)
-                or (flags & Flag.IsLoopBack)
-            ):
-                continue
-            ips = [
-                e.ip().toString()
-                for e in iface.addressEntries()
-                if "." in e.ip().toString()
-            ]
-            if not ips:
-                continue
-            iface_is_eth = iface.type() == IType.Ethernet
-            if iface_is_eth:
-                is_eth = True
-            for ip in ips:
-                local_ips.add(ip)
-                parts = ip.split(".")
-                if len(parts) != 4:
-                    continue
-                pfx = f"{parts[0]}.{parts[1]}.{parts[2]}."
-                target_list = eth_prefixes if iface_is_eth else other_prefixes
-                if pfx not in target_list:
-                    target_list.append(pfx)
-
-        prefixes: list[str] = []
-        for pfx in ("192.168.0.", "192.168.1."):
-            if pfx in eth_prefixes or pfx in other_prefixes:
-                prefixes.append(pfx)
-        for pfx in eth_prefixes + other_prefixes:
-            if pfx not in prefixes:
-                prefixes.append(pfx)
-
-        excluded = local_ips | _INFRASTRUCTURE_IPS
-
-        # 1. Fast pass: known camera IPs on active subnets + ARP neighbors
-        fast_candidates: list[str] = []
-        for ip in _PRIORITY_CAMERA_IPS:
-            if ip not in excluded and (
-                not prefixes or any(ip.startswith(pfx) for pfx in prefixes)
-            ):
-                fast_candidates.append(ip)
-        for ip in _read_arp_neighbors(prefixes, excluded):
-            if ip not in fast_candidates:
-                fast_candidates.append(ip)
-
-        if fast_candidates:
-            found = _probe_rtsp_hosts(fast_candidates, port=554, timeout=0.15)
-            if found:
-                return found, is_eth
-
-        # 2. Subnet sweep fallback across active /24 prefixes
-        seen = set(fast_candidates) | excluded
-        sweep_candidates = [
-            f"{pfx}{host}"
-            for pfx in prefixes
-            for host in range(2, 253)
-            if f"{pfx}{host}" not in seen
-        ]
-        if sweep_candidates:
-            found = _probe_rtsp_hosts(sweep_candidates, port=554, timeout=0.12)
-            if found:
-                return found, is_eth
-
-        # 3. Fallback when camera is offline
-        fallback = (
-            "192.168.1.108"
-            if "192.168.1." in prefixes and "192.168.0." not in prefixes
-            else "192.168.0.108"
-        )
-        return fallback, is_eth
+        """Auto-discovers an RTSP camera and checks Ethernet link presence."""
+        return autodiscover("rtsp"), has_active_ethernet()
 
     def apply_camera_transport(self) -> None:
         os.environ["QT_FFMPEG_RTSP_TRANSPORT"] = (
@@ -245,7 +80,9 @@ class CameraController(QtCore.QObject):
                 current = {ln.strip() for ln in cfg.splitlines()}
                 if all(f"table.{p}" in current for p in params):
                     return
-                opener.open(f"{base}?action=setConfig&" + "&".join(params), timeout=2.0).read()
+                opener.open(
+                    f"{base}?action=setConfig&" + "&".join(params), timeout=2.0
+                ).read()
             except Exception:
                 pass
 
@@ -277,7 +114,7 @@ class CameraController(QtCore.QObject):
         target = (
             self.camera_manual_target
             if self.camera_mode == "manual"
-            else self._detect_camera_link()[0]
+            else autodiscover("rtsp")
         )
         if target.startswith(("rtsp://", "http://", "https://", "file://")):
             return target
@@ -296,9 +133,7 @@ class CameraController(QtCore.QObject):
         )
         return f"rtsp://{auth}{host}:{port}/cam/realmonitor?channel=1&subtype={subtype}"
 
-    def set_camera_settings(
-        self, mode: str, profile: str, manual_target: str
-    ) -> None:
+    def set_camera_settings(self, mode: str, profile: str, manual_target: str) -> None:
         cam = dict(self._cam_cfg())
         new_mode = "manual" if mode == "manual" else "auto"
         new_prof = "udp_high" if profile == "udp_high" else "tcp_low"
@@ -307,7 +142,7 @@ class CameraController(QtCore.QObject):
             and cam.get("mode") != "auto"
             and profile == cam.get("profile")
         ):
-            _, is_eth = self._detect_camera_link()
+            is_eth = has_active_ethernet()
             new_prof = "udp_high" if is_eth else "tcp_low"
         cam.update(
             {

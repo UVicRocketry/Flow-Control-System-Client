@@ -11,6 +11,7 @@ from actuator_controller import ActuatorController
 from camera_controller import CameraController
 from config_manager import ensure_config_file_exists, is_dev_environment
 from config_store import ConfigStore
+from connection_finder import is_ws_reachable
 from log_manager import LogManager
 from telemetry_files import reveal_in_file_browser
 from telemetry_store import TelemetryStore
@@ -26,6 +27,7 @@ class Backend(QtCore.QObject):
     """
 
     config_changed = QtCore.Signal()
+    server_mode_changed = QtCore.Signal(str)
     server_url_changed = QtCore.Signal(str)
     auto_reconnect_changed = QtCore.Signal(bool)
     reconnect_interval_ms_changed = QtCore.Signal(int)
@@ -81,6 +83,7 @@ class Backend(QtCore.QObject):
         self.log_manager.remote_data_changed.connect(self.remote_data_changed)
 
         self.config_store.config_changed.connect(self.config_changed)
+        self.config_store.server_mode_changed.connect(self.server_mode_changed)
         self.config_store.server_url_changed.connect(self.server_url_changed)
         self.config_store.auto_reconnect_changed.connect(self.auto_reconnect_changed)
         self.config_store.reconnect_interval_ms_changed.connect(
@@ -139,6 +142,30 @@ class Backend(QtCore.QObject):
     def config_dir(self) -> str:
         return self.config_store.config_dir
 
+    @QtCore.Property(str, notify=server_mode_changed)
+    def server_mode(self) -> str:
+        return self.config_store.server_mode
+
+    @server_mode.setter
+    def server_mode(self, mode: str) -> None:
+        self.config_store.server_mode = mode
+
+    @QtCore.Slot(str)
+    def set_server_mode(self, mode: str) -> None:
+        self.config_store.set_server_mode(mode)
+
+    @QtCore.Property(str, notify=config_changed)
+    def server_manual_url(self) -> str:
+        return self.config_store.server_manual_url
+
+    @server_manual_url.setter
+    def server_manual_url(self, url: str) -> None:
+        self.config_store.server_manual_url = url
+
+    @QtCore.Slot(str)
+    def set_server_manual_url(self, url: str) -> None:
+        self.config_store.set_server_manual_url(url)
+
     @QtCore.Property(str, notify=server_url_changed)
     def server_url(self) -> str:
         return self.config_store.server_url
@@ -146,6 +173,14 @@ class Backend(QtCore.QObject):
     @server_url.setter
     def server_url(self, url: str) -> None:
         self.config_store.server_url = url
+
+    @QtCore.Slot(result=str)
+    def refresh_server_url(self) -> str:
+        return self.config_store.refresh_server_url()
+
+    @QtCore.Slot(str, result=bool)
+    def is_ws_reachable(self, url: str) -> bool:
+        return is_ws_reachable(url)
 
     @QtCore.Property(bool, notify=auto_reconnect_changed)
     def auto_reconnect(self) -> bool:
