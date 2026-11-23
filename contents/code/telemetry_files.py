@@ -295,16 +295,6 @@ def parse_telemetry_file_with_units(
     return records, raw_seconds, discovered_cols, csv_units
 
 
-def parse_telemetry_file(resolved_path: Path) -> tuple[list, list, list]:
-    """
-    parses a .csv or .jsonl telemetry file into (records, raw_seconds, cols).
-    """
-    records, raw_seconds, discovered_cols, _ = parse_telemetry_file_with_units(
-        resolved_path
-    )
-    return records, raw_seconds, discovered_cols
-
-
 def list_local_data_files() -> list[str]:
     """
     scans CONFIG_DIR / 'data' for telemetry files (.csv, .jsonl, .bin)
@@ -376,20 +366,6 @@ def init_recording_csv(dest_path: Path, known_channels: dict) -> list[str]:
     """
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     channels = list(known_channels.keys())
-    if not channels:
-        channels = [
-            "P_INJECTOR",
-            "P_COMB_CHMBR",
-            "P_N2O_FLOW",
-            "P_N2_FLOW",
-            "P_RUN_TANK",
-            "M_RUN_TANK",
-            "L_THRUST",
-            "T_RUN_TANK",
-            "T_INJECTOR",
-            "T_COMB_CHMBR",
-            "T_POST_COMB",
-        ]
     units_row = [_unit_for_channel(ch, known_channels) for ch in channels] + ["s"]
     header_row = channels + ["seconds"]
     with open(dest_path, "w", newline="", encoding="utf-8") as f:

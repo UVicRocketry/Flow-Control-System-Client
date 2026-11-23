@@ -12,10 +12,7 @@ QtObject {
     property var loadedData: null
     property string targetActionData: ""
     // --- Reactive Maps & State ---
-    property var externalRawList: []
     property var pendingDeleteMap: ({
-    })
-    property var renamedDataMap: ({
     })
     // Detect whether the WebSocket (ws) is currently connected
     readonly property bool isWebsocketConnected: {
@@ -25,59 +22,24 @@ QtObject {
         return false;
     }
     readonly property string effectiveDataMode: dataSourceMode === "live" ? lastHistoryMode : dataSourceMode
-    readonly property var externalDataList: {
-        var rawExt = externalRawList;
-        if (typeof backend !== "undefined" && backend !== null) {
-            var extArr = toJsArray(backend.external_data !== undefined ? backend.external_data : backend.externalData);
-            if (extArr !== null)
-                rawExt = extArr;
-        }
-        return formatDataList(rawExt, "external");
-    }
+    readonly property var externalDataList: (typeof backend !== "undefined" && backend) ? backend.external_data : []
     readonly property var activeDataList: {
-        var rawList = [];
-        if (effectiveDataMode === "local") {
-            var localArr = (typeof backend !== "undefined" && backend !== null) ? toJsArray(backend.local_data !== undefined ? backend.local_data : backend.localData) : null;
-            if (localArr !== null)
-                rawList = localArr;
-            else
-                rawList = ["run_2026_10_19_coldflow.csv", "run_2026_10_18_leakcheck.csv", "telemetry_dump_04.bin", "run_2026_10_12_purge.csv"];
-        } else if (isWebsocketConnected) {
-            var remoteArr = (typeof backend !== "undefined" && backend !== null) ? toJsArray(backend.remote_data !== undefined ? backend.remote_data : backend.remoteData) : null;
-            rawList = remoteArr !== null ? remoteArr : [];
-        }
-        return formatDataList(rawList, effectiveDataMode);
+        if (typeof backend === "undefined" || !backend)
+            return [];
+
+        if (effectiveDataMode === "local")
+            return backend.local_data;
+
+        return isWebsocketConnected ? backend.remote_data : [];
     }
 
     // --- Helper Functions ---
-    function formatDataList(rawList, mode) {
-        return rawList.filter(function(item) {
-            return item !== null && item !== undefined && String(item).trim() !== "";
-        }).map(function(item) {
-            var strItem = String(item);
-            var k = dataKey(mode, strItem);
-            return renamedDataMap[k] !== undefined ? renamedDataMap[k] : strItem;
-        });
-    }
-
-    function toJsArray(val) {
-        if (val === null || val === undefined || typeof val === "string" || typeof val.length !== "number")
-            return null;
-
-        var out = [];
-        for (var i = 0; i < val.length; i++)
-            out.push(val[i]);
-        return out;
-    }
     function dataKey(mode, name) {
         return mode + ":" + name;
     }
 
     function dataModeFor(name) {
-        if (externalDataList.indexOf(name) !== -1 || externalRawList.indexOf(name) !== -1)
-            return "external";
-
-        return effectiveDataMode;
+        return externalDataList.indexOf(name) !== -1 ? "external" : effectiveDataMode;
     }
 
     function isMarkedForDeletion(name) {
@@ -94,9 +56,6 @@ QtObject {
         }, pendingDeleteMap);
         next[dataKey(mode, name)] = true;
         pendingDeleteMap = next;
-        if (typeof backend !== "undefined" && backend !== null && backend.mark_data_for_deletion !== undefined)
-            backend.mark_data_for_deletion(mode, name);
-
     }
 
     function undoDeletion(name) {
@@ -108,9 +67,6 @@ QtObject {
         }, pendingDeleteMap);
         delete next[dataKey(mode, name)];
         pendingDeleteMap = next;
-        if (typeof backend !== "undefined" && backend !== null && backend.unmark_data_for_deletion !== undefined)
-            backend.unmark_data_for_deletion(mode, name);
-
     }
 
     function commitPendingDeletions() {
@@ -129,17 +85,8 @@ QtObject {
 
     function applyRename(oldName, newName) {
         var mode = dataModeFor(oldName);
-        var hasBackendRename = (typeof backend !== "undefined" && backend !== null && backend.rename_data !== undefined);
-        if (hasBackendRename) {
-            if (!backend.rename_data(mode, oldName, newName))
-                return ;
-        }
-        if (!hasBackendRename || mode === "external") {
-            let next = Object.assign({
-            }, renamedDataMap);
-            next[dataKey(mode, oldName)] = newName;
-            renamedDataMap = next;
-        }
+        if (typeof backend === "undefined" || backend === null || !backend.rename_data(mode, oldName, newName))
+            return ;
         if (selectedDataName === oldName)
             selectedDataName = newName;
 
@@ -181,12 +128,6 @@ QtObject {
         if (typeof backend !== "undefined" && backend !== null && backend.hide_external_data !== undefined)
             backend.hide_external_data(name);
 
-        var idx = externalRawList.indexOf(name);
-        if (idx !== -1) {
-            var nextExt = externalRawList.slice();
-            nextExt.splice(idx, 1);
-            externalRawList = nextExt;
-        }
         if (selectedDataName === name)
             selectedDataName = "";
     }
@@ -196,16 +137,6 @@ QtObject {
             return ;
 
         var resolvedMode = mode || dataModeFor(filePath);
-        if (resolvedMode === "external") {
-            if (typeof backend !== "undefined" && backend !== null && backend.add_external_data !== undefined)
-                backend.add_external_data(filePath);
-
-            if (externalRawList.indexOf(filePath) === -1 && externalDataList.indexOf(filePath) === -1) {
-                var nextExt = externalRawList.slice();
-                nextExt.unshift(filePath);
-                externalRawList = nextExt;
-            }
-        }
         selectedDataName = filePath;
         loadedDataName = filePath;
         loadedData = data !== undefined && data !== null ? data : {

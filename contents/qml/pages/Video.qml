@@ -102,7 +102,7 @@ ColumnLayout {
     Timer {
         id: connectTimeoutTimer
 
-        interval: 8000
+        interval: 5000
         repeat: false
         onTriggered: {
             if (!videoRoot.isPlaying && !videoRoot._wasStreaming && !videoRoot._userStopped) {

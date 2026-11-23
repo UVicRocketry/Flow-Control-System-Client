@@ -21,7 +21,7 @@ Kirigami.Dialog {
     padding: Kirigami.Units.largeSpacing
     standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
     onOpened: {
-        defaultUrlField.text = root.hasBackend ? backend.server_url : "ws://127.0.0.1:8080/ws";
+        defaultUrlField.text = root.hasBackend ? backend.server_manual_url : "ws://127.0.0.1:8080/ws";
         autoConnectCheck.checked = root.hasBackend ? backend.auto_reconnect : false;
         reconnectSpin.value = root.hasBackend ? backend.reconnect_interval_ms : 2000;
         var idx = root.logLevels.indexOf(root.minLogLevel);
@@ -39,12 +39,12 @@ Kirigami.Dialog {
 
         if (root.hasBackend) {
             if (defaultUrlField.text.trim().length > 0)
-                backend.set_server_url(defaultUrlField.text.trim());
+                backend.set_server_manual_url(defaultUrlField.text.trim());
 
-            backend.set_auto_reconnect(autoConnectCheck.checked);
-            backend.set_reconnect_interval_ms(reconnectSpin.value);
+            backend.auto_reconnect = autoConnectCheck.checked;
+            backend.reconnect_interval_ms = reconnectSpin.value;
             if (refreshHzCombo.currentIndex >= 0 && refreshHzCombo.currentIndex < root.refreshHzValues.length)
-                backend.set_view_refresh_hz(root.refreshHzValues[refreshHzCombo.currentIndex]);
+                backend.view_refresh_hz = root.refreshHzValues[refreshHzCombo.currentIndex];
 
             backend.set_camera_manual_target(camManualTargetField.text);
             backend.set_camera_credentials(camUserField.text.trim(), camPassField.text);

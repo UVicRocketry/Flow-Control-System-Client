@@ -165,6 +165,7 @@ hidden_imports = [
     "camera_controller",
     "config_manager",
     "config_store",
+    "connection_finder",
     "log_manager",
     "numpy",
     "platformdirs",

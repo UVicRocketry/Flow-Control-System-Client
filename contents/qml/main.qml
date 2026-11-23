@@ -203,8 +203,14 @@ Kirigami.ApplicationWindow {
                 if (enabled) {
                     root.userDisconnected = false;
                     if (sharedWebSocket.status !== WebSocket.Open && sharedWebSocket.status !== WebSocket.Connecting) {
-                        sharedWebSocket.active = false;
-                        sharedWebSocket.active = true;
+                        var nextUrl = (backend && backend.server_mode !== "manual") ? backend.refresh_server_url() : sharedWebSocket.url.toString();
+                        sharedWebSocket.url = nextUrl;
+                        if (!backend || backend.is_ws_reachable(nextUrl)) {
+                            if (sharedWebSocket.active)
+                                sharedWebSocket.active = false;
+
+                            sharedWebSocket.active = true;
+                        }
                     }
                 }
             }

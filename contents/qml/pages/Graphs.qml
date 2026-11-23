@@ -337,6 +337,7 @@ ColumnLayout {
         for (let i = 0; i < graphsModel.count; ++i) {
             graphsModel.setProperty(i, "filterOutliers3Std", graphsRoot.global3StdFilter);
         }
+        scheduleBatchRefresh();
     }
     onDataSourceModeChanged: scheduleBatchRefresh()
     onCustomSpanActiveChanged: scheduleBatchRefresh()

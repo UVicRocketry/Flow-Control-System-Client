@@ -7,11 +7,13 @@ from urllib.parse import quote
 from urllib.request import (
     HTTPDigestAuthHandler,
     HTTPPasswordMgrWithDefaultRealm,
+    ProxyHandler,
     build_opener,
 )
 
-from PySide6 import QtCore
-from PySide6.QtNetwork import QNetworkInterface
+from PySide6 import QtCore, QtMultimedia
+
+from connection_finder import autodiscover, has_active_ethernet
 
 
 class CameraController(QtCore.QObject):
@@ -38,28 +40,8 @@ class CameraController(QtCore.QObject):
 
     @staticmethod
     def _detect_camera_link() -> tuple[str, bool]:
-        """Auto-detects active Ethernet vs. Wireless interface and target camera IP."""
-        Flag = QNetworkInterface.InterfaceFlag
-        IType = QNetworkInterface.InterfaceType
-        eth_ip = ""
-        for iface in QNetworkInterface.allInterfaces():
-            flags = iface.flags()
-            if (
-                not (flags & Flag.IsUp)
-                or not (flags & Flag.IsRunning)
-                or (flags & Flag.IsLoopBack)
-            ):
-                continue
-            ips = [
-                e.ip().toString()
-                for e in iface.addressEntries()
-                if "." in e.ip().toString()
-            ]
-            if iface.type() == IType.Ethernet and ips:
-                eth_ip = ips[0]
-                if any(ip.startswith("192.168.1.") for ip in ips):
-                    return "192.168.1.108", True
-        return "192.168.0.108", bool(eth_ip)
+        """Auto-discovers an RTSP camera and checks Ethernet link presence."""
+        return autodiscover("rtsp"), has_active_ethernet()
 
     def apply_camera_transport(self) -> None:
         os.environ["QT_FFMPEG_RTSP_TRANSPORT"] = (
@@ -67,22 +49,40 @@ class CameraController(QtCore.QObject):
         )
 
     def _enforce_camera_h264(self, host: str) -> None:
-        """Configures Amcrest streams to H.264 in background for minimal latency."""
+        """Configures Amcrest streams for low-latency H.264 in background."""
         user, pwd = self.camera_username, self.camera_password
         if not host or not user:
             return
+        params = (
+            "Encode[0].MainFormat[0].Video.Compression=H.264",
+            "Encode[0].MainFormat[0].Video.Profile=Main",
+            "Encode[0].MainFormat[0].Video.GOP=5",
+            "Encode[0].MainFormat[0].Video.BitRateControl=CBR",
+            "Encode[0].MainFormat[0].AudioEnable=false",
+            "Encode[0].ExtraFormat[0].Video.Compression=H.264",
+            "Encode[0].ExtraFormat[0].Video.Profile=Main",
+            "Encode[0].ExtraFormat[0].Video.GOP=5",
+            "Encode[0].ExtraFormat[0].Video.BitRateControl=CBR",
+            "Encode[0].ExtraFormat[0].AudioEnable=false",
+        )
 
         def _worker() -> None:
             try:
+                base = f"http://{host}/cgi-bin/configManager.cgi"
                 mgr = HTTPPasswordMgrWithDefaultRealm()
-                url = (
-                    f"http://{host}/cgi-bin/configManager.cgi?action=setConfig"
-                    "&Encode[0].MainFormat[0].Video.Compression=H.264"
-                    "&Encode[0].ExtraFormat[0].Video.Compression=H.264"
+                mgr.add_password(None, base, user, pwd)
+                opener = build_opener(ProxyHandler({}), HTTPDigestAuthHandler(mgr))
+                cfg = (
+                    opener.open(f"{base}?action=getConfig&name=Encode", timeout=2.0)
+                    .read()
+                    .decode("utf-8", "replace")
                 )
-                mgr.add_password(None, url, user, pwd)
-                opener = build_opener(HTTPDigestAuthHandler(mgr))
-                opener.open(url, timeout=2.0).read()
+                current = {ln.strip() for ln in cfg.splitlines()}
+                if all(f"table.{p}" in current for p in params):
+                    return
+                opener.open(
+                    f"{base}?action=setConfig&" + "&".join(params), timeout=2.0
+                ).read()
             except Exception:
                 pass
 
@@ -106,7 +106,7 @@ class CameraController(QtCore.QObject):
 
     @property
     def camera_password(self) -> str:
-        return str(self._cam_cfg().get("password", ""))
+        return str(self._cam_cfg().get("password", "admin"))
 
     @property
     def camera_rtsp_url(self) -> str:
@@ -114,7 +114,7 @@ class CameraController(QtCore.QObject):
         target = (
             self.camera_manual_target
             if self.camera_mode == "manual"
-            else self._detect_camera_link()[0]
+            else autodiscover("rtsp")
         )
         if target.startswith(("rtsp://", "http://", "https://", "file://")):
             return target
@@ -133,9 +133,7 @@ class CameraController(QtCore.QObject):
         )
         return f"rtsp://{auth}{host}:{port}/cam/realmonitor?channel=1&subtype={subtype}"
 
-    def set_camera_settings(
-        self, mode: str, profile: str, manual_target: str
-    ) -> None:
+    def set_camera_settings(self, mode: str, profile: str, manual_target: str) -> None:
         cam = dict(self._cam_cfg())
         new_mode = "manual" if mode == "manual" else "auto"
         new_prof = "udp_high" if profile == "udp_high" else "tcp_low"
@@ -144,7 +142,7 @@ class CameraController(QtCore.QObject):
             and cam.get("mode") != "auto"
             and profile == cam.get("profile")
         ):
-            _, is_eth = self._detect_camera_link()
+            is_eth = has_active_ethernet()
             new_prof = "udp_high" if is_eth else "tcp_low"
         cam.update(
             {
@@ -168,18 +166,15 @@ class CameraController(QtCore.QObject):
 
     @staticmethod
     def configure_camera_player(player: QtCore.QObject) -> None:
-        """Configures QML MediaPlayer with LowLatencyStreaming and 5s timeout."""
-        try:
-            from PySide6 import QtMultimedia
-
-            opts = player.playbackOptions()
-            opts.setPlaybackIntent(
-                QtMultimedia.QPlaybackOptions.PlaybackIntent.LowLatencyStreaming
-            )
-            opts.setNetworkTimeout(5000)
-            player.setPlaybackOptions(opts)
-        except Exception:
-            pass
+        """Configures QML MediaPlayer for low-latency live RTSP playback."""
+        opts = player.playbackOptions()
+        opts.setPlaybackIntent(
+            QtMultimedia.QPlaybackOptions.PlaybackIntent.LowLatencyStreaming
+        )
+        opts.setProbeSize(4096)
+        opts.setNetworkTimeout(5000)
+        player.setPlaybackOptions(opts)
+        player.setPlaybackRate(2.0)
 
     def toggle_camera(self) -> None:
         self.camera_toggle_requested.emit()

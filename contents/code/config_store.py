@@ -5,11 +5,10 @@ from PySide6 import QtCore
 
 from config_manager import (
     CONFIG_DIR,
-    CONFIG_FILE,
-    is_dev_environment,
     read_app_config,
     write_app_config,
 )
+from connection_finder import autodiscover
 
 VALID_LOG_LEVELS = frozenset({"INFO", "WARN", "ERR"})
 
@@ -18,6 +17,7 @@ class ConfigStore(QtCore.QObject):
     """Manages reading, mutating, and persisting `config.json` settings."""
 
     config_changed = QtCore.Signal()
+    server_mode_changed = QtCore.Signal(str)
     server_url_changed = QtCore.Signal(str)
     auto_reconnect_changed = QtCore.Signal(bool)
     reconnect_interval_ms_changed = QtCore.Signal(int)
@@ -29,6 +29,7 @@ class ConfigStore(QtCore.QObject):
         super().__init__(parent)
         self._log_manager = log_manager
         self._config_data: dict = {}
+        self._last_server_url: str = ""
 
     def _log_error(self, msg: str) -> None:
         if self._log_manager is not None:
@@ -46,17 +47,13 @@ class ConfigStore(QtCore.QObject):
     def config_dir(self) -> str:
         return str(CONFIG_DIR)
 
-    @property
-    def config_file(self) -> str:
-        return str(CONFIG_FILE)
-
-    @property
-    def is_dev_mode(self) -> bool:
-        return is_dev_environment()
-
     def _ui_section(self) -> dict:
         ui = self._config_data.get("ui")
         return ui if isinstance(ui, dict) else {}
+
+    def _server_section(self) -> dict:
+        server = self._config_data.get("server")
+        return server if isinstance(server, dict) else {}
 
     def _ensure_section(self, name: str) -> dict:
         sec = self._config_data.get(name)
@@ -66,14 +63,31 @@ class ConfigStore(QtCore.QObject):
         return sec
 
     @property
-    def server_url(self) -> str:
-        server_sec = self._config_data.get("server", {})
-        if not isinstance(server_sec, dict):
-            return "ws://127.0.0.1:8080/ws"
-        return str(server_sec.get("default_url", "ws://127.0.0.1:8080/ws"))
+    def server_mode(self) -> str:
+        return "manual" if self._server_section().get("mode") == "manual" else "auto"
 
-    @server_url.setter
-    def server_url(self, url: str) -> None:
+    @server_mode.setter
+    def server_mode(self, mode: str) -> None:
+        self.set_server_mode(mode)
+
+    def set_server_mode(self, mode: str) -> None:
+        new_mode = "manual" if str(mode or "").strip().lower() == "manual" else "auto"
+        server_sec = self._ensure_section("server")
+        if server_sec.get("mode") != new_mode:
+            server_sec["mode"] = new_mode
+            self.save_config(self._config_data)
+            self.server_mode_changed.emit(new_mode)
+            self.server_url_changed.emit(self.server_url)
+
+    @property
+    def server_manual_url(self) -> str:
+        return str(self._server_section().get("default_url", "ws://127.0.0.1:8080/ws"))
+
+    @server_manual_url.setter
+    def server_manual_url(self, url: str) -> None:
+        self.set_server_manual_url(url)
+
+    def set_server_manual_url(self, url: str) -> None:
         clean = url.strip()
         if not clean:
             return
@@ -81,6 +95,37 @@ class ConfigStore(QtCore.QObject):
         if server_sec.get("default_url") != clean:
             server_sec["default_url"] = clean
             self.save_config(self._config_data)
+            if self.server_mode == "manual":
+                self.server_url_changed.emit(clean)
+
+    @property
+    def server_url(self) -> str:
+        if self.server_mode == "manual":
+            return self.server_manual_url
+        return autodiscover("ws")
+
+    def refresh_server_url(self) -> str:
+        """Resolves active server URL (autodiscovering in auto mode) and emits if changed."""
+        url = self.server_url
+        if url != self._last_server_url:
+            self._last_server_url = url
+            self.server_url_changed.emit(url)
+        return url
+
+    @server_url.setter
+    def server_url(self, url: str) -> None:
+        clean = url.strip()
+        if not clean:
+            return
+        server_sec = self._ensure_section("server")
+        mode_changed = server_sec.get("mode") != "manual"
+        url_changed = server_sec.get("default_url") != clean
+        if mode_changed or url_changed:
+            server_sec["mode"] = "manual"
+            server_sec["default_url"] = clean
+            self.save_config(self._config_data)
+            if mode_changed:
+                self.server_mode_changed.emit("manual")
             self.server_url_changed.emit(clean)
 
     @property
@@ -148,6 +193,7 @@ class ConfigStore(QtCore.QObject):
         """Loads configuration from CONFIG_FILE via config_manager."""
         self._config_data = read_app_config(self._log_error)
         self.config_changed.emit()
+        self.server_mode_changed.emit(self.server_mode)
         self.server_url_changed.emit(self.server_url)
         self.auto_reconnect_changed.emit(self.auto_reconnect)
         self.reconnect_interval_ms_changed.emit(self.reconnect_interval_ms)
@@ -163,13 +209,6 @@ class ConfigStore(QtCore.QObject):
             self.config_changed.emit()
             return True
         return False
-
-    def get_setting(self, key: str, default=None):
-        return self._config_data.get(key, default)
-
-    def set_setting(self, key: str, value) -> None:
-        self._config_data[key] = value
-        self.save_config(self._config_data)
 
     def get_split_config(self) -> dict:
         """Returns saved split view state, pane positions, and ratio."""

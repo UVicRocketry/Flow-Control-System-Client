@@ -12,9 +12,10 @@ import sys
 from pathlib import Path
 
 try:
-    from platformdirs import user_config_dir
-except ImportError:  # pragma: no cover - optional fallback when platformdirs is absent
-    user_config_dir = None  # type: ignore[assignment]
+    from platformdirs import user_config_path
+except ImportError as err:
+    print(f"[ERROR] Missing required library 'platformdirs': {err}", file=sys.stderr)
+    sys.exit(1)
 
 CURRENT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = CURRENT_DIR.parent.parent
@@ -47,29 +48,9 @@ def get_default_config_dir() -> Path:
 
 
 def get_user_config_dir() -> Path:
-    """
-    returns the standard OS-specific user configuration directory:
-    - linux / unix: $XDG_CONFIG_HOME/flow-control (or platformdirs fallback)
-    - windows: %APPDATA%/FlowControl (or platformdirs fallback)
-    - macos: ~/Library/Application Support/FlowControl
-    """
-    if sys.platform.startswith("win32"):
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            return Path(appdata) / "FlowControl"
-        if user_config_dir is not None:
-            return Path(user_config_dir("FlowControl", appauthor=False, roaming=True))
-        return Path.home() / "AppData" / "Roaming" / "FlowControl"
-    if sys.platform == "darwin":
-        if user_config_dir is not None:
-            return Path(user_config_dir("FlowControl", appauthor=False))
-        return Path.home() / "Library" / "Application Support" / "FlowControl"
-    xdg_config = os.environ.get("XDG_CONFIG_HOME")
-    if xdg_config:
-        return Path(xdg_config) / "flow-control"
-    if user_config_dir is not None:
-        return Path(user_config_dir("flow-control", appauthor=False))
-    return Path.home() / ".config" / "flow-control"
+    """Returns the OS-specific user configuration directory via platformdirs."""
+    app_name = "FlowControl" if sys.platform in ("win32", "darwin") else "flow-control"
+    return Path(user_config_path(app_name, appauthor=False, roaming=True))
 
 
 def is_dev_environment() -> bool:
@@ -114,21 +95,7 @@ def get_config_dir() -> Path:
 
     # standalone packaged distribution
     user_dir = get_user_config_dir()
-    try:
-        user_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as err:
-        print(
-            f"[CONFIG] Notice: Cannot write to {user_dir} ({err}). "
-            "Falling back to temp directory.",
-            file=sys.stderr,
-        )
-        tmp_base = os.environ.get("TEMP") or os.environ.get("TMP") or "/tmp"
-        fallback_dir = Path(tmp_base) / "flow-control"
-        try:
-            fallback_dir.mkdir(parents=True, exist_ok=True)
-            user_dir = fallback_dir
-        except OSError:
-            user_dir = get_default_config_dir()
+    user_dir.mkdir(parents=True, exist_ok=True)
 
     # seed default configuration files and subdirectories from bundled template if absent
     default_dir = get_default_config_dir()
@@ -225,6 +192,7 @@ def read_app_config(log_error_fn=None) -> dict:
         if "server" not in config_data:
             config_data["server"] = {}
         config_data["server"]["default_url"] = env_url
+        config_data["server"]["mode"] = "manual"
 
     return config_data
 
@@ -292,4 +260,3 @@ def write_graphs_config(
                 f'Failed to save graphs configuration to "{GRAPHS_CONFIG_FILE}": {err}'
             )
         return False
-

@@ -27,11 +27,6 @@ ColumnLayout {
             dashboard.disconnectBannerDismissed = false;
         }
 
-        function onWebsocket_closed() {
-            fn.commitPendingDeletions();
-            dashboard.disconnectBannerDismissed = false;
-        }
-
         function onData_loaded(mode, filePath, data) {
             fn.onLoad_data(mode, filePath, data);
         }
